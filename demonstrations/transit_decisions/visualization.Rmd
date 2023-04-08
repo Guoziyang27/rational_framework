@@ -1,0 +1,89 @@
+
+```{r setup}
+library(dplyr)
+library(tidyr)
+library(distributional)
+library(ggdist)
+library(ggplot2)
+library(cowplot)
+library(patchwork)
+
+theme_set(theme_gray())
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+We visualize the analysis figure of transit decision visualizations in this document. We first load the four data sets.
+
+```{r dataload}
+rational_posterior = read.csv("./data/all_rational_posterior.csv") |> dplyr::select(-X)
+rational_prior = read.csv("./data/all_rational_prior.csv") |> dplyr::select(-X)
+behavioral = read.csv("./data/all_behavioral.csv") |> dplyr::select(-X)
+calibrated_behavioral = read.csv("./data/all_calibrated_behavioral.csv") |> dplyr::select(-X)
+```
+
+We then plot the four scores in 
+
+```{r plot}
+score_summary = merge(behavioral |> 
+        select(behavioral_score = score, everything()) |> 
+        group_by(scenario, vis) |> 
+        dplyr::summarise(behavioral_score = mean(behavioral_score)), 
+  calibrated_behavioral |> 
+    select(calibrated_score = score, everything()) |> 
+    group_by(scenario, vis) |> 
+    dplyr::summarise(calibrated_score = mean(calibrated_score)), by = c("scenario", "vis")) |>
+  mutate(loss = calibrated_score - behavioral_score) |>
+  arrange(loss)
+```
+
+```{r s1}
+ggplot() +
+  stat_slab(data = behavioral |> filter(scenario == "s1"), aes(y = vis, x = score), fill = "#7570b3", point_size=1.5) +
+  stat_slab(data = calibrated_behavioral |> filter(scenario == "s1"), aes(y = vis, x = score), fill = "#d95f02", point_size=1.5) +
+  geom_vline(xintercept = (rational_posterior |> filter(scenario == "s1"))$score, linetype = "dashed", linewidth = 1) + 
+  geom_vline(xintercept = (rational_prior |> filter(scenario == "s1"))$score, linetype = "dashed", linewidth = 1) + 
+  labs(x = "", y = "") +
+  ylim((score_summary |> filter(scenario == "s1"))$vis) +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major = element_line(colour = "grey"),
+        axis.line.x = element_line(linewidth = 1.5, colour = "grey80"),
+        panel.background = element_rect(fill = "white", color = "white"),
+        axis.ticks.y = element_blank(),
+        axis.ticks.x = element_line(colour = "grey"))
+```
+
+```{r s2}
+ggplot() +
+  stat_slab(data = behavioral |> filter(scenario == "s2"), aes(y = vis, x = score), fill = "#7570b3", point_size=1.5) +
+  stat_slab(data = calibrated_behavioral |> filter(scenario == "s2"), aes(y = vis, x = score), fill = "#d95f02", point_size=1.5) +
+  geom_vline(xintercept = (rational_posterior |> filter(scenario == "s2"))$score, linetype = "dashed", size = 1) + 
+  geom_vline(xintercept = (rational_prior |> filter(scenario == "s2"))$score, linetype = "dashed", size = 1) + 
+  labs(x = "", y = "") +
+  ylim((score_summary |> filter(scenario == "s2"))$vis) +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major = element_line(colour = "grey"),
+        axis.line.x = element_line(linewidth = 1.5, colour = "grey80"),
+        panel.background = element_rect(fill = "white", color = "white"),
+        axis.ticks.y = element_blank(),
+        axis.ticks.x = element_line(colour = "grey"))
+```
+
+```{r s3}
+ggplot() +
+  stat_slab(data = behavioral |> filter(scenario == "s3"), aes(y = vis, x = score), fill = "#7570b3", point_size=1.5) +
+  stat_slab(data = calibrated_behavioral |> filter(scenario == "s3"), aes(y = vis, x = score), fill = "#d95f02", point_size=1.5) +
+  geom_vline(xintercept = (rational_posterior |> filter(scenario == "s3"))$score, linetype = "dashed", linewidth = 1) + 
+  geom_vline(xintercept = (rational_prior |> filter(scenario == "s3"))$score, linetype = "dashed", linewidth = 1) + 
+  labs(x = "", y = "") +
+  ylim((score_summary |> filter(scenario == "s3"))$vis) +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major = element_line(colour = "grey"),
+        axis.line.x = element_line(linewidth = 1.5, colour = "grey80"),
+        panel.background = element_rect(fill = "white", color = "white"),
+        axis.ticks.y = element_blank(),
+        axis.ticks.x = element_line(colour = "grey"))
+```

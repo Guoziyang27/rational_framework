@@ -1,0 +1,271 @@
+
+
+```{r setup}
+
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(RColorBrewer)
+library(rstan)
+library(bayesplot)
+library(modelr)
+library(tidybayes)
+library(ggstance)
+library(brms)
+library(loo)
+library(DescTools)
+library(lme4)
+library(gamlss)
+library(dplyr)
+
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+devAskNewPage(ask = FALSE)
+```
+
+In this document, we generate behavioral agents' actions from a linear model with random effects, which is built through a process of model expansion. The random effects model has a good ability of simulating the behavioral agents on a new data sample while balancing unrelated factors through data samples.
+
+## Load and clean data
+
+ We load the experiment data of Fernandes et al., remove duplicated data, and then do data transformations like Fernandes et al.
+
+```{r dataload}
+df = read.csv("data/final_trials.csv") %>%
+  as_tibble()
+
+df = df[!duplicated(df), ]
+
+max_trial = 39
+stopifnot(max(df$trial) == max_trial)
+
+df = df %>%
+  mutate(
+    trial_normalized = ((trial - max_trial) / max_trial) + 0.5
+  )
+
+df = df %>%
+  filter(scenario != "s4") %>%
+  mutate(scenario = factor(scenario))
+```
+
+
+
+## Linear Model of Response
+
+Before we fit the model to our data, let's check whether our priors seem reasonable. We use a weakly informative prior for the intercept parameter since we want the population-level centered intercept to be flexible. We set the expected value of the prior on the intercept equal to the mean value of the ground truth that we sampled.
+
+Let's look at the basic distribution of response. The graph shows that response follow gaussian distributions, so we get the mean to elicit the prior of model fitting.
+
+```{r checkdistribution}
+df %>%
+  ggplot() +
+  geom_histogram(aes(response)) +
+  facet_grid(. ~ scenario)
+
+df %>% group_by(scenario) %>% summarise(response = mean(response))
+```
+
+We start as simply as possible by just modeling the distribution of response with scenarios and use a model check grammar to compare the model's posterior predictive distribution with the distribution in data.
+
+```{r model}
+# get_prior(data = df, family = "gaussian",
+#           bf(response ~ scenario + vis + trial_normalized))
+
+m.response <- brm(data = df, family = "gaussian",
+                   bf(response ~ scenario),
+                   prior = c(prior(normal(10, 1), class = Intercept),
+                             prior(normal(1, 0.5), class = b),
+                             prior(normal(0, 0.5), class = sigma)),
+                   iter = 3000, warmup = 500, chains = 2, cores = 2,
+               file = "models/response_scenario_mdl")
+
+m.response %>% 
+  mcplot() +
+  mc_distribution("predictive") +
+  mc_uncertainty_representation(c("HOPs")) +
+  mc_comparative_layout("superposition") +
+  mc_conditional_variables(row_vars = vars(scenario))
+```
+
+Now we add more predictors into the model to make it more sensitive to the distributions of observed data. 
+
+```{r model2}
+m.response_scenario_vis_trial <- brm(data = df, family = "gaussian",
+               bf(response ~ scenario + vis + trial_normalized),
+               prior = c(prior(normal(10, 1), class = Intercept),
+                         prior(normal(1, 0.5), class = b),
+                         prior(normal(0, 0.3), class = sigma)),
+               iter = 3000, warmup = 500, chains = 2, cores = 2,
+               file = "models/response_scenario_vis_trial_mdl")
+
+m.response_scenario_vis_trial %>% 
+  mcplot() +
+  mc_distribution("predictive") +
+  mc_uncertainty_representation(c("static")) +
+  mc_comparative_layout("superposition") +
+  mc_conditional_variables(row_vars = vars(scenario), col_vars = vars(vis))
+```
+
+## Add Interactions
+
+We then try to add interactions.
+
+```{r model3}
+m.response_scenario_vis_trial_interaction <- brm(data = df, family = "gaussian",
+                                  bf(response ~ scenario * vis + trial_normalized),
+                                  prior = c(prior(normal(10, 1), class = Intercept),
+                                            prior(normal(1, 0.5), class = b),
+                                            prior(normal(0, 0.3), class = sigma)),
+                                  iter = 3000, warmup = 500, chains = 2, cores = 2,
+                                  file = "models/response_scenario_vis_trial_interaction_mdl")
+
+m.response_scenario_vis_trial_interaction %>%
+  mcplot() +
+  mc_distribution("predictive") +
+  mc_uncertainty_representation(c("static")) +
+  mc_comparative_layout("superposition") +
+  mc_conditional_variables(row_vars = vars(scenario), col_vars = vars(vis))
+
+
+m.response_scenario_vis_trial_interaction_all <- brm(data = df, family = "gaussian",
+                                              bf(response ~ scenario * vis * trial_normalized),
+                                              prior = c(prior(normal(10, 1), class = Intercept),
+                                                        prior(normal(1, 0.5), class = b),
+                                                        prior(normal(0, 0.3), class = sigma)),
+                                              iter = 3000, warmup = 500, chains = 2, cores = 2,
+                                              file = "models/response_scenario_vis_trial_interaction_all_mdl")
+
+m.response_scenario_vis_trial_interaction_all %>%
+  mcplot() +
+  mc_distribution("predictive") +
+  mc_uncertainty_representation(c("static")) +
+  mc_comparative_layout("superposition") +
+  mc_conditional_variables(row_vars = vars(vis), col_vars = vars(scenario))
+```
+
+## Add Random Effects
+
+We then add random effect with participant id to push forward $\mu$ in Gaussian model.
+
+```{r model4}
+m.response_scenario_vis_trial_interaction_all_mix <- brm(data = df, family = "gaussian",
+                                                      formula = bf(response ~ scenario * vis * trial_normalized + (1 | participant)),
+                                                      prior = c(prior(normal(10, 1), class = Intercept),
+                                                                prior(normal(1, 0.5), class = b),
+                                                                prior(normal(0, 0.3), class = sigma)),
+                                                      iter = 4000, warmup = 1000, chains = 2, cores = 2,
+                                                      file = "models/response_scenario_vis_trial_interaction_all_mix_mdl")
+
+get_prior(data = df, family = "gaussian",
+          bf(response ~ scenario * vis * trial_normalized + (1 | participant),
+             sigma ~ vis * scenario)
+          )
+```
+
+We then add predictors to $\sigma$ and simulate like we did for $\mu$ to make it sensitive to the distribution of observed data.
+
+```{r model5}
+m.response_scenario_vis_trial_interaction_all_mix_sigma <- brm(data = df, family = "gaussian",
+                                                  formula = bf(response ~ scenario * vis * trial_normalized + (1 | participant),
+                                                     sigma ~ vis * scenario),
+                                                  prior = c(prior(normal(10, 1), class = Intercept),
+                                                            prior(normal(1, 0.5), class = b),
+                                                            prior(normal(0, 0.3), class = b, dpar = sigma)),
+                                                  iter = 10000, warmup = 4000, chains = 4, cores = 4,
+                                                  file = "models/response_scenario_vis_trial_interaction_all_mix_sigma_mdl")
+
+
+m.response_scenario_vis_trial_interaction_all_mix_sigma %>%
+  mcplot() +
+  mc_distribution("predictive") +
+  mc_uncertainty_representation(c("static")) +
+  mc_comparative_layout("superposition") +
+  mc_conditional_variables(row_vars = vars(vis), col_vars = vars(scenario))
+
+# get_prior(data = df, family = "gaussian",
+#           formula = bf(response ~ scenario * vis * trial_normalized + (trial_normalized | participant),
+#                        sigma ~ vis * scenario * trial_normalized))
+
+m.response_scenario_vis_trial_interaction_all_mix_sigma_trial <- brm(data = df, family = "gaussian",
+                                                            formula = bf(response ~ scenario * vis * trial_normalized + (trial_normalized | participant),
+                                                                         sigma ~ vis * scenario * trial_normalized),
+                                                            prior = c(prior(normal(10, 1), class = Intercept),
+                                                                      prior(normal(1, 0.5), class = b),
+                                                                      prior(normal(0, 0.3), class = b, dpar = sigma)),
+                                                            iter = 10000, warmup = 4000, chains = 4, cores = 4,
+                                                            file = "models/response_scenario_vis_trial_interaction_all_mix_sigma_trial_mdl")
+
+
+m.response_scenario_vis_trial_interaction_all_mix_sigma_trial %>%
+  mcplot() +
+  mc_distribution("predictive") +
+  mc_uncertainty_representation(c("static")) +
+  mc_comparative_layout("superposition") +
+  mc_conditional_variables(row_vars = vars(vis), col_vars = vars(scenario))
+
+
+m.response_scenario_vis_trial_interaction_all_mix_sigma_trial_participant <- brm(data = df, family = "gaussian",
+                                                                                 formula = bf(response ~ scenario * vis * trial_normalized + (trial_normalized | participant),
+                                                                                              sigma ~ vis * scenario * trial_normalized + (trial_normalized | participant)),
+                                                                                 prior = c(prior(normal(10, 1), class = Intercept),
+                                                                                           prior(normal(1, 0.5), class = b),
+                                                                                            prior(normal(0, 0.3), class = b, dpar = sigma)),
+                                                                                 iter = 10000, warmup = 4000, chains = 4, cores = 4,
+                                                                                 file = "models/response_scenario_vis_trial_interaction_all_mix_sigma_trial_participant_mdl")
+
+
+m.response_scenario_vis_trial_interaction_all_mix_sigma_trial_participant %>%
+  mcplot() +
+  mc_distribution("predictive") +
+  mc_uncertainty_representation(c("HOPs")) +
+  mc_comparative_layout("superposition") +
+  mc_conditional_variables(row_vars = vars(vis), col_vars = vars(scenario))
+```
+
+After making model sensitive to all setting variables, we add distribution parameters to model first as linear predictors. Then we found the model fits the distribution of response well.
+
+```{r modelfinal}
+m.final_response <- brm(data = df, family = "gaussian",
+                        formula = bf(response ~ scenario * vis * trial_normalized + mu + sigma + (trial_normalized | participant),
+                                      sigma ~ vis * scenario * trial_normalized + (trial_normalized | participant)),
+                        prior = c(prior(normal(10, 1), class = Intercept),
+                                  prior(normal(1, 0.5), class = b),
+                                  prior(normal(0, 0.3), class = b, dpar = sigma)),
+                        iter = 10000, warmup = 4000, chains = 4, cores = 4,
+                        file = "models/response_final_mdl")
+
+
+m.final_response %>%
+  mcplot() +
+  mc_distribution("predictive") +
+  mc_uncertainty_representation(c("static")) +
+  mc_comparative_layout("superposition") +
+  mc_conditional_variables(row_vars = vars(vis), col_vars = vars(scenario))
+```
+
+Finally, we generate the behavioral agents' response by the posterior predictive distribution of the model and calculate a discrete version of distributions (since the space of response lies in discrete numbers of minutes).
+
+```{r dataoutput}
+distribution_df = df %>%
+  select(distribution, mu, sigma, nu, tau) %>%
+  unique() %>%
+  rowwise() %>%
+  mutate(discrete = list((pBCT((1:30) + 0.5 + 15, mu, sigma, nu, tau) -
+                            pBCT((1:30) - 0.5 + 15,  mu, sigma, nu, tau)) /
+                           (pBCT(30.5 + 15, mu, sigma, nu, tau) - pBCT(15.5, mu, sigma, nu, tau)))) %>%
+  unnest_wider(col = discrete, names_sep = '_') %>%
+  mutate(
+    text = round(gamlss.dist::qBCT(1 - .85, mu, sigma, nu, tau) - 15),
+    text60 = round(gamlss.dist::qBCT(1 - .60, mu, sigma, nu, tau) - 15),
+    text99 = round(gamlss.dist::qBCT(1 - .99, mu, sigma, nu, tau) - 15)
+  )
+
+write.csv(distribution_df, "./data/distribution_info_bct.csv", row.names = FALSE)
+
+pred.df = df %>%
+  add_predicted_draws(m.response, ndraws = 500, value="pred_response", re_formula = NA) %>%
+  group_by()
+  
+write.csv(pred.df %>% 
+            select(vis, participant, distribution, scenario, trial, trial_normalized, response, optimal_payoff, optimal_time, pred_response, .row), 
+          "./data/fernandes_data.csv", row.names = FALSE)
+```

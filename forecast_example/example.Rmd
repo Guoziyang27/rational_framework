@@ -1,0 +1,118 @@
+```{r setup, include=FALSE}
+library(ggplot2)
+library(ggdist)
+library(Rmisc)
+library(gganimate)
+library(dplyr)
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+In this documents, we show how we generate the data from a Gaussian distribution with a fixed mean and sigma drawn from a uniform distribution.
+
+```{r datagenerate}
+
+n_size = 100
+
+sigma = runif(1, 0, 5)
+
+low_temp = rnorm(n_size, 5, sigma)
+
+df = data.frame(low_temp, x=factor(0))
+
+dfc = summarySE(df, measurevar="low_temp")
+
+mean_temp = mean(low_temp)
+
+margin = qt(0.975, df = n_size - 1) * sd(low_temp) / sqrt(n_size)
+
+den_temp = density(low_temp)
+```
+
+## Stimuli
+
+We generate four types of stimuli (mean, mean + CI, mean + gradience, and mean + HOPs).
+
+```{r stimuli1}
+
+theme_set(theme_ggdist())
+options(repr.plot.width = 10, repr.plot.height =2)
+
+ggplot(mapping = aes(x=0)) +
+  geom_hline(yintercept=mean(low_temp),
+             size=2, color="red") +
+  labs(x = "", y = "") + 
+  ylim(-20, 60) + theme(aspect.ratio=4) + 
+  theme(panel.background = element_rect(fill = "white", colour = "grey50"))
+```
+
+```{r stimuli2}
+ggplot(mapping = aes(x=factor(0)), colour=x) +
+  geom_hline(yintercept=mean(low_temp),
+             size=2, color="red")+
+  geom_errorbar(aes(ymin = mean(low_temp) - dfc$sd, ymax = mean(low_temp) + dfc$sd), width = 0.2) +
+  labs(x = "", y = "") +
+  theme(axis.text.x = element_blank(),
+    axis.ticks = element_blank()) + 
+  ylim(-20, 60) + theme(aspect.ratio=4) + 
+  theme(panel.background = element_rect(fill = "white", colour = "grey50"))
+```
+
+```{r stimuli3}
+ggplot(mapping = aes(x=factor(0)), colour=x) +
+  geom_raster(aes(y = den_temp$x, fill = den_temp$y)) + 
+  guides(fill=guide_legend(title="Density")) +
+  scale_fill_gradient(low = "white", high = "#7F9FCE") + 
+  geom_hline(yintercept=mean(low_temp),
+             size=2, color="red") +
+  labs(x = "", y = "") +
+  theme(axis.text.x = element_blank(),
+        axis.ticks = element_blank()) + 
+  ylim(-20, 60) + theme(aspect.ratio=4) + theme(legend.position = "none") + 
+  theme(panel.background = element_rect(fill = "white", colour = "grey50"))
+```
+We output the frames of HOPs into `gganim/`.
+
+```{r stimuli4}
+hops_df = df |> sample_n(50)  |> mutate(sample_id = 1:50) |> select(hops_low_temp = low_temp, everything())
+
+p = hops_df |> 
+  ggplot(mapping = aes(x=factor(0))) +
+    geom_hline(yintercept = mean_temp,
+               size=2, color="red") +
+    geom_point(aes(y = hops_low_temp), shape = '-', size=10, color = '#7F9FCE') +
+    labs(x = "", y = "") + 
+  theme(axis.text.x = element_blank(),
+        axis.ticks = element_blank()) + 
+    ylim(-20, 60) +
+    transition_manual(sample_id) + theme(aspect.ratio=4) + 
+  theme(panel.background = element_rect(fill = "white", colour = "grey50"))
+animate(p, renderer = file_renderer("./gganim", prefix = "hops", overwrite = TRUE), fps = 5)
+```
+
+We then draw the payoff of decisions under different possibility of freezing, where the upper segments represent the rational agent with posterior information's payoff and the lower parts are the theoretical lowerbound of decision's payoff.
+
+```{r payoff}
+theme_set(theme_ggdist())
+
+a = 0
+b = 0
+c = -10
+d = -100
+
+rprior = -7.96
+rpos = -5.69
+
+df1 = data.frame(x = c(0, 1), y = c(a, d))
+df2 = data.frame(x = c(0, 1), y = c(c, b))
+
+ggplot() +
+  geom_line(data = df1, aes(x, y), color = "#d95f02", size=1) +
+  geom_line(data = df2, aes(x, y), color = "#7570b3", size=1) +
+  geom_point(data = df1, aes(x, y), color = "#d95f02") +
+  geom_point(data = df2, aes(x, y), color = "#7570b3") +
+  geom_vline(xintercept = 0, linetype="dashed") +
+  geom_vline(xintercept = 1, linetype="dashed") +
+  theme(aspect.ratio = 0.5) +
+  labs(x="possibility of superiority", y="payoff")
+```
