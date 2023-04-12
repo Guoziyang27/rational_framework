@@ -108,12 +108,12 @@ mc_visualize <- function(prev_ret, uncertainty_representation, conditional_vars 
   
   x_var = x_var[[1]]
   if (!is.null(x_var)) {
-    samples = samples |> select(x_axis = !!x_var, everything())
+    samples = samples |> dplyr::select(x_axis = !!x_var, everything())
     labels$x = quo_name(x_var)
   }
   
   if (!("y_axis" %in% colnames(samples))) {
-    samples = samples |> select(y_axis = prediction, everything())
+    samples = samples |> dplyr::select(y_axis = prediction, everything())
   }
   
   sampling_by <- function(distribution, number_of_total, number_of_sample, way = "uniform") {
