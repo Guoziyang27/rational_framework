@@ -8,10 +8,13 @@ library(dplyr)
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-In this documents, we show how we generate the data from a Gaussian distribution with a fixed mean and sigma drawn from a uniform distribution.
+In this documents, we show how we generate the weather forecast example data and how the visualization stimuli is generated.
+
+## Data generating Process
+
+We generate the data from a Gaussian distribution with a fixed mean and varying variance drawn from a uniform distribution. 
 
 ```{r datagenerate}
-
 n_size = 100
 
 sigma = runif(1, 0, 5)
@@ -23,8 +26,6 @@ df = data.frame(low_temp, x=factor(0))
 dfc = summarySE(df, measurevar="low_temp")
 
 mean_temp = mean(low_temp)
-
-margin = qt(0.975, df = n_size - 1) * sd(low_temp) / sqrt(n_size)
 
 den_temp = density(low_temp)
 ```
@@ -90,7 +91,9 @@ p = hops_df |>
 animate(p, renderer = file_renderer("./gganim", prefix = "hops", overwrite = TRUE), fps = 5)
 ```
 
-We then draw the payoff of decisions under different possibility of freezing, where the upper segments represent the rational agent with posterior information's payoff and the lower parts are the theoretical lowerbound of decision's payoff.
+## Expected Score
+
+We then draw the expected score of the agent for both no-salt and salt actions as a function of his belief p, where the upper segments represent the rational agent with posterior information's payoff and the lower parts are the theoretical lowerbound of decision's payoff.
 
 ```{r payoff}
 theme_set(theme_ggdist())
