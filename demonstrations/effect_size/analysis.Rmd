@@ -1,0 +1,406 @@
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(tidyverse)
+library(RColorBrewer)
+library(rstan)
+library(modelr)
+library(tidybayes)
+library(brms)
+library(magrittr)
+library(purrr)
+
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+devAskNewPage(ask = FALSE)
+```
+
+In this document, we run the rational framework on effect size judgement experiment in Kale et al. We first use two statistical models to predict behavioral agent's probability of superiority (PoS) distribution and decision distribution. We use the models from Kale et al. to generate.
+
+In effect size judgement experiment, we consider two kinds of behavioral agents. The first kind reports their belief of PoS, and the second kind directly reportsthe decision (whether to hire new player in the setting of Kale et al.). The framework basically is a function that estimates five parameters:
+
+1.  The *rational baseline* ($Rprior$): the performance of the rational agent without access to the visualization signals, i.e., with prior belief.
+
+2.  The *rational benchmark* ($R$): the performance of the rational agent with access to the signal (provided by the visualization), i.e., with the posterior belief.
+
+3.  The *behavioral decision score* ($B$): the expected score of the behavioral agent, who reports decisions, predicted by generative statistic model.
+
+4.  The *PoS raw score* ($B^Q$): the expected score of the behavioral agent, who reports PoS, predicted by generative statistic model.
+
+5.  The *calibrated PoS score* ($C^Q$): the score of a rational agent on information structure $\pi^B$ of the behavioral agent who reports PoS.
+
+## Generate Behavioral Data
+
+### Load in Data
+
+This is the data we used to fit the models.
+
+```{r}
+# read in data 
+model_df <- read_csv("./data/model-data.csv")
+
+# preprocessing
+model_df <- model_df %>% 
+  mutate(
+    # factors for modeling
+    means = as.factor(means),
+    start_means = as.factor(start_means),
+    sd_diff = as.factor(sd_diff),
+    condition = factor(condition, levels = c("densities","intervals", "HOPs", "QDPs")), # reorder
+    # evidence scale for decision model
+    p_diff = p_award_with - (p_award_without + (1 / award_value)),
+    evidence = qlogis(p_award_with) - qlogis(p_award_without + (1 / award_value))
+  )
+```
+
+### Models
+
+Then we reuse the models in Kale et al.
+
+```{r}
+# hierarchical linear log odds model
+m.p_sup <- brm(data = model_df, family = "gaussian",
+             formula = bf(lo_p_sup ~  (1 + lo_ground_truth*trial + means*sd_diff|worker_id) + lo_ground_truth*means*sd_diff*condition*start_means + lo_ground_truth*condition*trial,
+                          sigma ~ (1 + lo_ground_truth + trial|worker_id) + lo_ground_truth*condition*trial + means*start_means),
+             prior = c(prior(normal(1, 0.5), class = b),
+                       prior(normal(1.3, 1), class = Intercept),
+                       prior(normal(0, 0.15), class = sd, group = worker_id),
+                       prior(normal(0, 0.3), class = b, dpar = sigma),
+                       prior(normal(0, 0.15), class = sd, dpar = sigma),
+                       prior(lkj(4), class = cor)),
+             iter = 12000, warmup = 2000, chains = 2, cores = 2, thin = 2,
+             control = list(adapt_delta = 0.99, max_treedepth = 12),
+             file = "models/llo_mdl")
+```
+
+```{r}
+m.decisions <- brm(
+  data = model_df, family = bernoulli(link = "logit"),
+  formula = bf(intervene ~ (1 + evidence*means*sd_diff + evidence*trial|worker_id) + evidence*means*sd_diff*condition*start_means + evidence*condition*trial),
+  prior = c(prior(normal(0, 1), class = Intercept),
+            prior(normal(1, 1), class = b, coef = evidence),
+            prior(normal(0, 0.5), class = b),
+            prior(normal(0, 0.5), class = sd),
+            prior(lkj(4), class = cor)),
+  iter = 8000, warmup = 2000, chains = 2, cores = 2, thin = 2,
+  file = "models/logistic_mdl")
+```
+
+We generate the data generate the behavioral agents' belief of PoS and decisions by the posterior predictive distribution of the models.
+
+```{r addprediction}
+llo_model_df <- model_df %>%
+  data_grid(lo_ground_truth, means, sd_diff, condition, trial, start_means) %>%
+  add_predicted_draws(m.p_sup, re_formula = NA, n = 500) %>%
+  mutate(est_error = plogis(.prediction) - plogis(lo_ground_truth))
+
+logistic_model_df <- model_df %>%
+  data_grid(evidence, means, sd_diff, condition, trial, start_means) %>%
+  add_predicted_draws(m.decisions, re_formula = NA, ndraws = 5000, seed = 1234)
+```
+
+## Rational Agent Framework
+
+### Setup
+
+These are constants and data initialization.
+
+```{r Constants and data}
+n_data <- 0
+eps <- 1e-5
+
+rand_size <- 160 * 2
+
+n_ground_truth <- 0
+condition_dict <- c("densities", "intervals", "HOPs", "QDPs")
+
+means_dict <- c("FALSE", "TRUE")
+
+lo_ground_truth_dict <- list()
+
+trial_groundtruth_dict <- list()
+trial_means_dict <- list()
+trial_condition_dict <- list()
+
+sd_diff_dict <- list()
+n_sd_diff <- 0
+
+lo_ground_truth <- vector("numeric")
+means <- c("FALSE", "TRUE")
+condition <- c("densities", "intervals", "HOPs", "QDPs")
+
+decision_truth_map <- list()
+```
+
+We then define the utility functions need by rational agent calculation.
+
+```{r utility functions}
+inv_log <- function(a) {
+  # Computes the inverse of the logit function
+  return(1.00 / (1.00 + exp(0.00 - as.numeric(a))))
+}
+
+qlogis <- function(a) {
+  # Computes the logit function
+  return(log(a / (1.00 - a)))
+}
+
+heuristic <- function(ground_truth, sd_diff) {
+  # Computes the heuristic given ground truth and standard deviation difference
+  return(0.5 + as.numeric(ground_truth) * sd_diff / 225.0)
+}
+
+
+binning <- function(bin_size) {
+  # Computes the empirical distribution for each combination of condition, mean and ground truth
+  freq <- array(0, c(4, 2, 8, 100))
+  freq_tibble = tibble(
+    condition = match(condition_data, condition_dict), 
+    means = match(means_data, means_dict), 
+    ground_truth = ground_truth_data, 
+    pred_data=as.integer(inv_log(pred_data) / bin_size)
+  ) |> 
+    # counting condition, means, groundtruth, the response numbers, empirical distribution
+    count(condition, means, ground_truth, pred_data)
+  
+  for (i in 1:nrow(freq_tibble)) {
+    freq[freq_tibble[i, "condition"][[1]],
+         freq_tibble[i, "means"][[1]],
+         freq_tibble[i, "ground_truth"][[1]],
+         freq_tibble[i, "pred_data"][[1]] + 1] <- freq_tibble[i, "n"][[1]]
+  }
+  return(freq)
+}
+
+compute_freq <- function(bin_num, bin_size) {
+  # Computes the frequency given bin number and bin size
+  return((bin_num + 0.5) * bin_size)
+}
+
+eq_err <- function(a, b) {
+  # Compares if two values are equal within a margin of error 'eps'
+  if (abs(a - b) <= eps) {
+    return(TRUE)
+  }
+  return(FALSE)
+}
+
+log_eps <- function(a) {
+  # Computes the natural logarithm with an added epsilon to avoid log(0)
+  return(log(a + eps))
+}
+
+rand_draw <- function(freq) {
+  # Draws samples from the frequency distribution
+  lst <- 0:99
+  sample <- sample(lst, size = rand_size, prob = freq, replace = TRUE)
+  freq_tmp <- array(0, c(1, 100))
+  for (i in sample) {
+    freq_tmp[1, i + 1] <- freq_tmp[1, i + 1] + 1
+  }
+  return(freq_tmp)
+}
+```
+
+### Scoring rule
+
+We define the scoring rule for PoS reports and decision reports respectively.
+
+```{r scoring rule}
+
+expect_quadratic <- function(report, pos_truth) {
+  # Computes the expected quadratic score given a report and the position of the ground truth
+  if (is.numeric(pos_truth)) {
+    tmp_ground_truth <- lo_ground_truth[pos_truth + 1]
+  } else {
+    tmp_ground_truth <- lo_ground_truth[unlist(pos_truth) + 1]
+  }
+  
+  # decision score
+  return(decision_score(prior_freq <= report, tmp_ground_truth))
+}
+
+decision_score <- function(decision, truth) {
+  # Computes the decision score given a decision and the ground truth
+  return(decision * (3.17 * truth - 1.00) + (1 - decision) * 3.17 * 0.5)
+}
+```
+
+### Calculation
+
+The following code is for calculating rational agent framework. It might take a few minutes to run.
+
+```{r load data}
+calc_score <- function(freq_tmp, bin_size) {
+  # Calculates behavioral and calibrated behavioral scores given frequency and bin size
+  behavioral_score <- 0.0
+  for (i in 1:n_ground_truth) {
+    behavioral_score <- behavioral_score + sum(freq_tmp[i, ] * expect_quadratic(compute_freq(0:99, bin_size), i - 1)) / sum(freq_tmp)
+  }
+  
+  cond_posterior <- array(0, c(n_ground_truth, 100))
+  for (i in 1:n_ground_truth) {
+    for (j in 1:100) {
+      if (!eq_err(freq_tmp[i, j], 0.0)) {
+        cond_posterior[i, j] <- freq_tmp[i, j] / sum(freq_tmp[, j])
+      }
+    }
+  }
+  calib_posterior <- lo_ground_truth %*% cond_posterior
+  calib_behav_score <- 0.00
+  for (i in 1:n_ground_truth) {
+    calib_behav_score <- calib_behav_score + sum(freq_tmp[i, ] * expect_quadratic(calib_posterior, i - 1)) / sum(freq_tmp)
+  }
+  return(list(behavioral_score, calib_behav_score))
+}
+
+lo_ground_truth_dict = unique(llo_model_df$lo_ground_truth)
+
+n_ground_truth = length(lo_ground_truth_dict)
+
+lo_ground_truth <- pnorm(sqrt(2) * qnorm(inv_log(lo_ground_truth_dict)))
+
+ground_truth_data <- match(llo_model_df$lo_ground_truth, lo_ground_truth_dict)
+pred_data <- llo_model_df$.prediction
+means_data <- llo_model_df$means
+condition_data <- llo_model_df$condition
+
+
+bin_size <- 0.02
+freq <- binning(bin_size)
+# compute prior - np.sum(freq[0, 0], axis = 1) is the number of trials with each ground truth, lo_ground_truth winning prob
+prior_freq <- sum(rowSums(freq[1, 1, , ]) * lo_ground_truth) / sum(freq[1, 1, , ])
+
+
+# run the analysis
+prior_score <- sum(rowSums(freq[1, 1, , ]) * expect_quadratic(prior_freq, 0:(n_ground_truth - 1))) / sum(freq[1, 1, , ])
+cat("prior freq", prior_freq, "\n")
+cat("prior score: ", prior_score, "\n")
+
+posterior_score <- sum(rowSums(freq[1, 1, , ]) * expect_quadratic(lo_ground_truth, 0:(n_ground_truth - 1))) / sum(freq[1, 1, , ])
+cat("posterior score: ", posterior_score, "\n")
+
+score_ind <- c()
+score_behav <- c()
+score_calib <- c()
+
+n_round <- 100
+for (t in 1:4) {
+  for (m in 1:2) {
+    tmp_behav <- c()
+    tmp_calib <- c()
+    for (i in 1:n_round) {
+      freq_tmp <- rand_draw(freq[t, m, 1, ])
+      for (j in 2:n_ground_truth) {
+        freq_tmp <- rbind(freq_tmp, rand_draw(freq[t, m, j, ]))
+      }
+      behav_tmp <- calc_score(freq_tmp, bin_size)
+      tmp_behav <- c(tmp_behav, behav_tmp[[1]])
+      tmp_calib <- c(tmp_calib, behav_tmp[[2]])
+    }
+    
+    score_ind <- c(score_ind, rep((t - 1) * 4 + m, n_round))
+    score_behav <- c(score_behav, tmp_behav)
+    score_calib <- c(score_calib, tmp_calib)
+  }
+}
+
+tmp_decision_ground_truth_dict = unique(logistic_model_df$evidence)
+trans_tmp_decision_ground_truth_dict = inv_log(tmp_decision_ground_truth_dict + qlogis(0.5 + 1.0 / 3.17))
+decision_ground_truth_dataframe = data.frame(matrix(ncol=2,nrow=0, 
+                                         dimnames=list(NULL, c("evidence", "index"))))
+decision_ground_truth_dict = c()
+decision_ground_truth_count = 0
+for (i in 1:length(tmp_decision_ground_truth_dict)) {
+  flag = TRUE
+  if (nrow(decision_ground_truth_dataframe) > 0) {
+    for (j in 1:nrow(decision_ground_truth_dataframe)) {
+      gt = decision_ground_truth_dataframe[j, "evidence"]
+      index = decision_ground_truth_dataframe[j, "index"]
+      if (eq_err(as.numeric(gt), tmp_decision_ground_truth_dict[i])) {
+        flag = FALSE
+        decision_ground_truth_dataframe[nrow(decision_ground_truth_dataframe) + 1, ] = 
+          c(tmp_decision_ground_truth_dict[i], index)
+      }
+    }
+  }
+  if (flag) {
+    decision_ground_truth_count = decision_ground_truth_count + 1
+    decision_ground_truth_dataframe[nrow(decision_ground_truth_dataframe) + 1, ] = 
+      c(tmp_decision_ground_truth_dict[i], decision_ground_truth_count)
+    decision_ground_truth_dict = c(decision_ground_truth_dict, trans_tmp_decision_ground_truth_dict[i])
+  }
+}
+decision_ground_truth_dataframe = decision_ground_truth_dataframe |> transform(evidence = as.numeric(evidence), 
+                                                       index = as.numeric(index))
+
+decision_freq <- array(0, c(4, 2, 8, 2))
+decision_freq_tibble = tibble(
+  condition = match(logistic_model_df$condition, condition_dict), 
+  means = match(logistic_model_df$means, means_dict), 
+  ground_truth = (logistic_model_df |> dplyr::select(evidence) |> merge(decision_ground_truth_dataframe, by="evidence"))$index, 
+  pred_data=as.integer(logistic_model_df$.prediction)
+) |> 
+  # counting condition, means, groundtruth, the response numbers, empirical distribution
+  count(condition, means, ground_truth, pred_data)
+
+for (i in 1:nrow(decision_freq_tibble)) {
+  decision_freq[decision_freq_tibble[i, "condition"][[1]],
+       decision_freq_tibble[i, "means"][[1]],
+       decision_freq_tibble[i, "ground_truth"][[1]],
+       decision_freq_tibble[i, "pred_data"][[1]] + 1] <- decision_freq_tibble[i, "n"][[1]]
+}
+
+score_decision <- c()
+n_round <- 100
+for (t in 1:4) {
+  for (m in 1:2) {
+    tmp_decision <- c()
+    for (i in 1:n_round) {
+      score_tmp <- 0.0
+      for (j in 1:decision_ground_truth_count) {
+        sample <- sample(c(0, 1), size = rand_size, prob = decision_freq[t, m, j, ] / sum(decision_freq[t, m, j, ]), replace = TRUE)
+        freq_tmp <- sum(sample) / rand_size
+        score_tmp <- score_tmp + decision_score(freq_tmp, decision_ground_truth_dict[j])
+      }
+      score_tmp <- score_tmp / decision_ground_truth_count
+      tmp_decision <- c(tmp_decision, score_tmp)
+    }
+    score_decision <- c(score_decision, tmp_decision)
+  }
+}
+
+
+# Save results to csv files
+all_behavioral <- data.frame(
+  vis = condition[unlist(lapply(score_ind, function(x) (x %/% 4) + 1))],
+  mean = means[unlist(lapply(score_ind, function(x) x %% 4))],
+  behavioral = score_behav,
+  calibrated_behavioral = score_calib,
+  behavioral_decision = score_decision
+)
+all_rational <- data.frame(
+  "rational"= c(prior_score, posterior_score)
+)
+```
+### Results
+
+```{r visualize}
+
+ggplot() +
+  stat_slab(data = all_behavioral, aes(y = mean, x = behavioral), fill = "#7570b3", point_size=1.5) +
+  stat_slab(data = all_behavioral, aes(y = mean, x = calibrated_behavioral), fill = "#d95f02", point_size=1.5) +
+  stat_slab(data = all_behavioral, aes(y = mean, x = behavioral_decision), fill = "#1b9e77", point_size=1.5) +
+  geom_vline(xintercept = all_rational[[1]][1], linetype = "dashed", size = 1) +
+  geom_vline(xintercept = all_rational [[1]][2], linetype = "dashed", size = 1) + 
+  labs(x = "", y = "") +
+  facet_grid(rows = vars(vis)) +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major = element_line(colour = "grey"),
+        axis.line.x = element_line(linewidth = 1.5, colour = "grey80"),
+        panel.background = element_rect(fill = "white", color = "white"),
+        axis.ticks.y = element_blank(),
+        axis.ticks.x = element_line(colour = "grey"))
+
+```

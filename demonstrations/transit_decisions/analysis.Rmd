@@ -1,5 +1,3 @@
-
-
 ```{r setup}
 
 knitr::opts_chunk$set(echo = TRUE)
@@ -27,11 +25,20 @@ options(mc.cores = parallel::detectCores())
 devAskNewPage(ask = FALSE)
 ```
 
-In this document, we generate behavioral agents' actions from a linear model with random effects, which is built through a process of model expansion. The random effects model has a good ability of simulating the behavioral agents on a new data sample while balancing unrelated factors through data samples.
+In this document, we run the rational agent framework for transit decision task and its corresponding visualizations in Fernandes et al. We first use a statistical model to predict behavioral agent's response distribution. The model accounts for random effects such as variance between participants.
 
-## Load and clean data
+The framework basically is a function that estimates four parameters:
 
- We load the experiment data of Fernandes et al., remove duplicated data, and then do data transformations like Fernandes et al.
+1.  The *rational baseline* ($Rprior$): the performance of the rational agent without access to the visualization signals, i.e., with prior belief.
+2.  The *rational benchmark* ($R$): the performance of the rational agent with access to the signal (provided by the visualization), i.e., with the posterior belief.
+3.  The *behavioral score* ($B$): the expected score of the behavioral agent predicted by generative statistic model.
+4.  The *calibrated behavioral score* ($C$): the score of a rational agent on information structure $\pi^B$.
+
+## Generate Behavioral Response
+
+### Load and clean data
+
+We load the experiment data of Fernandes et al., remove duplicated data, and then do data transformations.
 
 ```{r dataload}
 df = read.csv("data/final_trials.csv") %>%
@@ -52,13 +59,11 @@ df = df %>%
   mutate(scenario = factor(scenario))
 ```
 
+### Linear Model of Response
 
+Before we fit the model to our data, let's check whether our priors seem reasonable. We use a weakly informative prior for the intercept parameter since we want the population-level centered intercept to be flexible.
 
-## Linear Model of Response
-
-Before we fit the model to our data, let's check whether our priors seem reasonable. We use a weakly informative prior for the intercept parameter since we want the population-level centered intercept to be flexible. We set the expected value of the prior on the intercept equal to the mean value of the ground truth that we sampled.
-
-Let's look at the basic distribution of response. The graph shows that response follow gaussian distributions, so we get the mean to elicit the prior of model fitting.
+Let's look at the basic distribution of response. The graph shows that response follow gaussian distributions, so we set the expected value of the prior on the intercept equal to the mean value of the response that we sampled.
 
 ```{r checkdistribution}
 df %>%
@@ -91,7 +96,7 @@ m.response %>%
   mc_conditional_variables(row_vars = vars(scenario))
 ```
 
-Now we add more predictors into the model to make it more sensitive to the distributions of observed data. 
+Now we add more predictors into the model to make it more sensitive to the distributions of observed data.
 
 ```{r model2}
 m.response_scenario_vis_trial <- brm(data = df, family = "gaussian",
@@ -110,7 +115,7 @@ m.response_scenario_vis_trial %>%
   mc_conditional_variables(row_vars = vars(scenario), col_vars = vars(vis))
 ```
 
-## Add Interactions
+### Add Interactions
 
 We then try to add interactions.
 
@@ -147,7 +152,7 @@ m.response_scenario_vis_trial_interaction_all %>%
   mc_conditional_variables(row_vars = vars(vis), col_vars = vars(scenario))
 ```
 
-## Add Random Effects
+### Add Random Effects
 
 We then add random effect with participant id to push forward $\mu$ in Gaussian model.
 
@@ -186,10 +191,6 @@ m.response_scenario_vis_trial_interaction_all_mix_sigma %>%
   mc_comparative_layout("superposition") +
   mc_conditional_variables(row_vars = vars(vis), col_vars = vars(scenario))
 
-# get_prior(data = df, family = "gaussian",
-#           formula = bf(response ~ scenario * vis * trial_normalized + (trial_normalized | participant),
-#                        sigma ~ vis * scenario * trial_normalized))
-
 m.response_scenario_vis_trial_interaction_all_mix_sigma_trial <- brm(data = df, family = "gaussian",
                                                             formula = bf(response ~ scenario * vis * trial_normalized + (trial_normalized | participant),
                                                                          sigma ~ vis * scenario * trial_normalized),
@@ -226,6 +227,8 @@ m.response_scenario_vis_trial_interaction_all_mix_sigma_trial_participant %>%
   mc_conditional_variables(row_vars = vars(vis), col_vars = vars(scenario))
 ```
 
+### Final model
+
 After making model sensitive to all setting variables, we add distribution parameters to model first as linear predictors. Then we found the model fits the distribution of response well.
 
 ```{r modelfinal}
@@ -254,10 +257,9 @@ distribution_df = df %>%
   dplyr::select(distribution, mu, sigma, nu, tau) %>%
   unique() %>%
   rowwise() %>%
-  # mutate(discrete = list((pBCT((-15:30) + 0.5 + 15, mu, sigma, nu, tau) -
-  #                           pBCT((-15:30) - 0.5 + 15,  mu, sigma, nu, tau)) /
-  #                          (pBCT(30 + 15, mu, sigma, nu, tau) - pBCT(0, mu, sigma, nu, tau)))) %>%
-  mutate(discrete = list(dBCT((-14:30) + 15, mu, sigma, nu, tau))) %>%
+  mutate(discrete = list((pBCT((1:30) + 0.5 + 15, mu, sigma, nu, tau) -
+                            pBCT((1:30) - 0.5 + 15,  mu, sigma, nu, tau)) /
+                           (pBCT(30.5 + 15, mu, sigma, nu, tau) - pBCT(15.5, mu, sigma, nu, tau)))) %>%
   unnest_wider(col = discrete, names_sep = '_') %>%
   mutate(
     text = round(gamlss.dist::qBCT(1 - .85, mu, sigma, nu, tau) - 15),
@@ -265,11 +267,19 @@ distribution_df = df %>%
     text99 = round(gamlss.dist::qBCT(1 - .99, mu, sigma, nu, tau) - 15)
   )
 
-pred.df = df %>%
+meta.df = df %>% 
+  dplyr::select(scenario, vis, trial_normalized, distribution, mu, sigma, nu, tau)
+
+pred.df = meta.df %>%
   add_predicted_draws(m.final_response, ndraws = 500, value="pred_response", re_formula = NA) %>%
   group_by()
 ```
 
+## Rational Agent Framework
+
+### Scoring rule
+
+First we define the scoring rule in transit decision making problem, which is the expect payoff over a bus arriving distribution for a rider arriving time.
 
 ```{r scoringrule}
 scoring_rule = function(rider_at_stop, distribution, scenario) {
@@ -283,8 +293,8 @@ scoring_rule = function(rider_at_stop, distribution, scenario) {
   payoff <- function(rider_at_stop, bus_at_stop, second_bus_at_stop, wait_penalty,
                      delay_bonus, destination_reward, max_destination_time){
   
-          arrived_before_bus <- as.integer(rider_at_stop <= bus_at_stop)
-          arrived_after_bus <- as.integer(rider_at_stop > bus_at_stop)
+          arrived_before_bus <- as.integer(rider_at_stop <= bus_at_stop - 1)
+          arrived_after_bus <- as.integer(rider_at_stop > bus_at_stop - 1)
           time_waited <- (bus_at_stop * arrived_before_bus) +
                          (second_bus_at_stop * arrived_after_bus) - rider_at_stop
           time_at_destination <- max(max_destination_time -
@@ -297,16 +307,16 @@ scoring_rule = function(rider_at_stop, distribution, scenario) {
           return(reward)
   }
   
-  pointwise.payoff <- lapply(0:(45 * 45 - 1),
+  pointwise.payoff <- lapply(0:(30 * 30 - 1),
                              function(m,
                                       wait_penalty,
                                       delay_bonus,
                                       destination_reward,
                                       max_destination_time){
-                               first_bus = (m %/% 45) - 14
-                               second_bus = (m %% 45) - 14
-                            first_prob <- distribution[first_bus + 15]
-                            second_prob <- distribution[second_bus + 15]
+                               first_bus = (m %/% 30) + 1
+                               second_bus = (m %% 30) + 1
+                            first_prob <- distribution[first_bus]
+                            second_prob <- distribution[second_bus]
                             payoff <- payoff(rider_at_stop, first_bus, second_bus + 30, wait_penalty,
                                              delay_bonus, destination_reward,
                                              max_destination_time)
@@ -320,24 +330,31 @@ scoring_rule = function(rider_at_stop, distribution, scenario) {
 }
 ```
 
+### Setup
+
+Then we prepare with calculating and transforming some variables.
 
 ```{r precalculation}
 scenario_ids = unique(df$scenario)
 distribution_ids = unique(df$distribution)
 vis_ids = unique(df$vis)
 
-pred.df$pred_response = round(pmax(pmin(pred.df$pred_response, 30), 0))
+pred.df$pred_response = round(pmax(pmin(pred.df$pred_response, 30), 1))
+```
 
+We calculate the dictionary of payoff for all scenario, existing distribution, and rider arriving time to accelerate later calculation. This might take a few minutes.
+
+```{r payoff mapping}
 payoff_mapping = list()
 for (scenario_id in scenario_ids) {
   distribution_seq = list()
   for (distribution_id in distribution_ids) {
-    response_seq = sapply(0:30, 
+    response_seq = sapply(1:30, 
                           function(response, distribution_id, scenario_id) {
                             scoring_rule(response,
                                          distribution_df |>
                                             filter(distribution == distribution_id) |>
-                                            dplyr::select("discrete_1":"discrete_45") |>
+                                            dplyr::select("discrete_1":"discrete_30") |>
                                             as.vector() |>
                                             as.numeric(),
                                          scenario_id)
@@ -348,7 +365,11 @@ for (scenario_id in scenario_ids) {
   }
   payoff_mapping[[scenario_id]] = distribution_seq
 }
+
+payoff_mapping
 ```
+
+We define some functions to calculate four parameters.
 
 ```{r setup rational agent framework}
 get_rational_posterior = function(sample_df, distribution_df) {
@@ -374,10 +395,10 @@ get_rational_posterior = function(sample_df, distribution_df) {
       values = unique(case_data[[vis_name]])
       value_seq = list()
       for (value in values) {
-        distributions = case_data[case_data[vis_name] == value, ] |> dplyr::select("discrete_1":"discrete_45") |> data.matrix()
+        distributions = case_data[case_data[vis_name] == value, ] |> dplyr::select("discrete_1":"discrete_30") |> data.matrix()
         
         distribution = colSums(distributions) / nrow(distributions)
-        payoff = Reduce("max", lapply(0:30, 
+        payoff = Reduce("max", lapply(1:30, 
                                 function(m, distribution, scenario) scoring_rule(m, distribution, scenario), 
                                 distribution = distribution, 
                                 scenario = scenario_id))
@@ -424,11 +445,11 @@ get_rational_prior = function(sample_df, distribution_df) {
   for (scenario_id in scenario_ids) {
     distributions = prior_belief |> 
       filter(scenario == scenario_id) |> 
-      dplyr::select("discrete_1":"discrete_45") |> 
+      dplyr::select("discrete_1":"discrete_30") |> 
       data.matrix()
         
     distribution = colSums(distributions) / nrow(distributions)
-    payoff = Reduce("max", lapply(0:30, 
+    payoff = Reduce("max", lapply(1:30, 
                                   function(m, distribution, scenario) scoring_rule(m, distribution, scenario), 
                                   distribution = distribution, 
                                   scenario = scenario_id))
@@ -439,16 +460,18 @@ get_rational_prior = function(sample_df, distribution_df) {
 }
 
 get_behavioral = function(sample_df, distribution_df) {
-  behavioral_action_payoff = c()
-  for (i in 1:nrow(sample_df)) {
-    behavioral_action_payoff = append(behavioral_action_payoff, 
-                                 payoff_mapping[[as.character(sample_df[i, "scenario"][[1]]) ]]
-                                  [[ sample_df[i, "distribution"][[1]] ]]
-                                  [[ sample_df[i, "pred_response"][[1]] + 1 ]])
-  }
+  # behavioral_action_payoff = array(c(), dim=nrow(sample_df))
+  # for (i in 1:nrow(sample_df)) {
+  #   behavioral_action_payoff = append(behavioral_action_payoff, 
+  #                                payoff_mapping[[as.character(sample_df[i, "scenario"][[1]]) ]]
+  #                                 [[ sample_df[i, "distribution"][[1]] ]]
+  #                                 [[ sample_df[i, "pred_response"][[1]] ]])
+  # }
   sample_df |>
-    group_by() |>
-    mutate(behavioral_payoff = behavioral_action_payoff) |>
+    ungroup() |>
+    mutate(scenario = as.character(scenario)) |> 
+    rowwise() |> 
+    mutate(behavioral_payoff = payoff_mapping[[scenario]][[distribution]][[pred_response]]) |>
     group_by(scenario, vis) |>
     summarise(payoff = mean(behavioral_payoff))
 }
@@ -466,20 +489,28 @@ get_calibrated_behavioral = function(sample_df, distribution_df) {
     for (vis_id in vis_ids) {
       case_data = sample_with_distribution |> filter(scenario == scenario_id,
                                                      vis == vis_id)
-      responses = unique(sample_with_distribution$pred_response)
+      responses = unique(case_data$pred_response)
       for (response_id in responses) {
+        print(as.numeric(Sys.time())*1000, digits=15)
+        print(1)
         distributions = case_data |> 
           filter(pred_response == response_id) |> 
-          dplyr::select("discrete_1":"discrete_45") |> 
+          dplyr::select("discrete_1":"discrete_30") |> 
           data.matrix()
         distribution = colSums(distributions) / nrow(distributions)
-        payoff = Reduce("max", lapply(0:30, 
+        print(as.numeric(Sys.time())*1000, digits=15)
+        print(1.5)
+        payoff = Reduce("max", lapply(1:30, 
                         function(m, distribution, scenario) scoring_rule(m, distribution, scenario), 
                         distribution = distribution, 
                         scenario = scenario_id))
+        print(as.numeric(Sys.time())*1000, digits=15)
+        print(2)
         calibrated_behavioral_payoff[calibrated_behavioral_payoff$scenario == scenario_id &
                                        calibrated_behavioral_payoff$vis == vis_id &
                                        calibrated_behavioral_payoff$response == response_id, "payoff"] = payoff
+        print(as.numeric(Sys.time())*1000, digits=15)
+        print(3)
       }
     }
   }
@@ -490,16 +521,23 @@ get_calibrated_behavioral = function(sample_df, distribution_df) {
 
 ```
 
-```{r calculation rational posterior}
-all_rational_posterior = get_rational_posterior(df, distribution_df)
-```
+### Pre-experiment analysis
 
+We calculate the rational baseline and benchmark. This might take a few minutes.
+
+```{r calculation rational posterior}
+all_rational_posterior = get_rational_posterior(meta.df, distribution_df)
+all_rational_posterior
+```
 
 ```{r calculation rational prior}
-all_rational_prior = get_rational_prior(df, distribution_df)
+all_rational_prior = get_rational_prior(meta.df, distribution_df)
+all_rational_prior
 ```
 
+### Post-experiment analysis
 
+We calculate the behavioral agent's score and the calibrated behavioral score. To show the uncertainty of behavioral agent's decision, we run a hundred rounds and draw a subset of decisions in each round. This will take a few hours. Please adjust your expectation before running this. Reducing number of round (`n_round`) can be less time-consuming.
 
 ```{r calculation behavioral}
 n_round = 100
@@ -522,8 +560,13 @@ for (round_id in 1:n_round) {
   calibrated_behavioral$round = round_id
   all_calibrated_behavioral = rbind(all_calibrated_behavioral, calibrated_behavioral)
 }
+
+c(all_behavioral, all_calibrated_behavioral)
 ```
 
+### Results
+
+We show the results by visualizations in each scenario.
 
 ```{r visualization}
 score_summary = merge(all_behavioral |> 
