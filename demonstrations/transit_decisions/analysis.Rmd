@@ -257,9 +257,7 @@ distribution_df = df %>%
   dplyr::select(distribution, mu, sigma, nu, tau) %>%
   unique() %>%
   rowwise() %>%
-  mutate(discrete = list((pBCT((1:30) + 0.5 + 15, mu, sigma, nu, tau) -
-                            pBCT((1:30) - 0.5 + 15,  mu, sigma, nu, tau)) /
-                           (pBCT(30.5 + 15, mu, sigma, nu, tau) - pBCT(15.5, mu, sigma, nu, tau)))) %>%
+  mutate(discrete = list(dBCT((-14:30) + 15, mu, sigma, nu, tau))) %>%
   unnest_wider(col = discrete, names_sep = '_') %>%
   mutate(
     text = round(gamlss.dist::qBCT(1 - .85, mu, sigma, nu, tau) - 15),
@@ -268,7 +266,9 @@ distribution_df = df %>%
   )
 
 meta.df = df %>% 
-  dplyr::select(scenario, vis, trial_normalized, distribution, mu, sigma, nu, tau)
+  group_by(scenario) %>% 
+  data_grid(vis, trial_normalized, distribution) %>%
+  merge(distribution_df %>% dplyr::select(distribution, mu, sigma, nu, tau), by="distribution")
 
 pred.df = meta.df %>%
   add_predicted_draws(m.final_response, ndraws = 500, value="pred_response", re_formula = NA) %>%
@@ -293,8 +293,8 @@ scoring_rule = function(rider_at_stop, distribution, scenario) {
   payoff <- function(rider_at_stop, bus_at_stop, second_bus_at_stop, wait_penalty,
                      delay_bonus, destination_reward, max_destination_time){
   
-          arrived_before_bus <- as.integer(rider_at_stop <= bus_at_stop - 1)
-          arrived_after_bus <- as.integer(rider_at_stop > bus_at_stop - 1)
+          arrived_before_bus <- as.integer(rider_at_stop <= bus_at_stop)
+          arrived_after_bus <- as.integer(rider_at_stop > bus_at_stop)
           time_waited <- (bus_at_stop * arrived_before_bus) +
                          (second_bus_at_stop * arrived_after_bus) - rider_at_stop
           time_at_destination <- max(max_destination_time -
@@ -307,16 +307,16 @@ scoring_rule = function(rider_at_stop, distribution, scenario) {
           return(reward)
   }
   
-  pointwise.payoff <- lapply(0:(30 * 30 - 1),
+  pointwise.payoff <- lapply(0:(45 * 45 - 1),
                              function(m,
                                       wait_penalty,
                                       delay_bonus,
                                       destination_reward,
                                       max_destination_time){
-                               first_bus = (m %/% 30) + 1
-                               second_bus = (m %% 30) + 1
-                            first_prob <- distribution[first_bus]
-                            second_prob <- distribution[second_bus]
+                               first_bus = (m %/% 45) - 14
+                               second_bus = (m %% 45) - 14
+                            first_prob <- distribution[first_bus + 15]
+                            second_prob <- distribution[second_bus + 15]
                             payoff <- payoff(rider_at_stop, first_bus, second_bus + 30, wait_penalty,
                                              delay_bonus, destination_reward,
                                              max_destination_time)
@@ -349,13 +349,13 @@ payoff_mapping = list()
 for (scenario_id in scenario_ids) {
   distribution_seq = list()
   for (distribution_id in distribution_ids) {
-    response_seq = sapply(1:30, 
+    response_seq = sapply(0:30, 
                           function(response, distribution_id, scenario_id) {
                             scoring_rule(response,
-                                         distribution_df |>
-                                            filter(distribution == distribution_id) |>
-                                            dplyr::select("discrete_1":"discrete_30") |>
-                                            as.vector() |>
+                                         distribution_df %>%
+                                            filter(distribution == distribution_id) %>%
+                                            dplyr::select("discrete_1":"discrete_45") %>%
+                                            as.vector() %>%
                                             as.numeric(),
                                          scenario_id)
                           }, 
@@ -365,8 +365,6 @@ for (scenario_id in scenario_ids) {
   }
   payoff_mapping[[scenario_id]] = distribution_seq
 }
-
-payoff_mapping
 ```
 
 We define some functions to calculate four parameters.
@@ -384,21 +382,21 @@ get_rational_posterior = function(sample_df, distribution_df) {
     posterior_optimal_payoff[[scenario_id]] = distribution_seq
   }
   
-  sample_with_distribution = sample_df |> merge(distribution_df,
+  sample_with_distribution = sample_df %>% merge(distribution_df,
                                                    by="distribution")
   vis_value_distribution_mapping = list()
   for (scenario_id in scenario_ids) {
-    case_data = sample_with_distribution |> filter(scenario == scenario_id)
+    case_data = sample_with_distribution %>% filter(scenario == scenario_id)
     vis_names = c("text", "text60", "text99")
     vis_seq = list()
     for (vis_name in vis_names) {
       values = unique(case_data[[vis_name]])
       value_seq = list()
       for (value in values) {
-        distributions = case_data[case_data[vis_name] == value, ] |> dplyr::select("discrete_1":"discrete_30") |> data.matrix()
+        distributions = case_data[case_data[vis_name] == value, ] %>% dplyr::select("discrete_1":"discrete_45") %>% data.matrix()
         
         distribution = colSums(distributions) / nrow(distributions)
-        payoff = Reduce("max", lapply(1:30, 
+        payoff = Reduce("max", lapply(0:30, 
                                 function(m, distribution, scenario) scoring_rule(m, distribution, scenario), 
                                 distribution = distribution, 
                                 scenario = scenario_id))
@@ -431,48 +429,41 @@ get_rational_posterior = function(sample_df, distribution_df) {
                                 new_payoff)
   }
   
-  sample_with_distribution |>
-    mutate(posterior_payoff = posterior_action_payoff) |>
-    group_by(scenario) |>
+  sample_with_distribution %>%
+    mutate(posterior_payoff = posterior_action_payoff) %>%
+    group_by(scenario) %>%
     summarise(payoff = mean(posterior_payoff))
 }
 
 get_rational_prior = function(sample_df, distribution_df) {
-  prior_belief = sample_df |> 
+  prior_belief = sample_df %>% 
     merge(distribution_df, by="distribution")
   prior_action_payoff = data.frame(matrix(ncol=2,nrow=0, 
                                          dimnames=list(NULL, c("scenario", "payoff"))))
   for (scenario_id in scenario_ids) {
-    distributions = prior_belief |> 
-      filter(scenario == scenario_id) |> 
-      dplyr::select("discrete_1":"discrete_30") |> 
+    distributions = prior_belief %>% 
+      filter(scenario == scenario_id) %>% 
+      dplyr::select("discrete_1":"discrete_45") %>% 
       data.matrix()
         
     distribution = colSums(distributions) / nrow(distributions)
-    payoff = Reduce("max", lapply(1:30, 
+    payoff = Reduce("max", lapply(0:30, 
                                   function(m, distribution, scenario) scoring_rule(m, distribution, scenario), 
                                   distribution = distribution, 
                                   scenario = scenario_id))
     prior_action_payoff[nrow(prior_action_payoff) + 1,] = c(scenario_id, payoff)
   }
-  prior_action_payoff = prior_action_payoff |> transform(payoff = as.numeric(payoff))
+  prior_action_payoff = prior_action_payoff %>% transform(payoff = as.numeric(payoff))
   prior_action_payoff
 }
 
 get_behavioral = function(sample_df, distribution_df) {
-  # behavioral_action_payoff = array(c(), dim=nrow(sample_df))
-  # for (i in 1:nrow(sample_df)) {
-  #   behavioral_action_payoff = append(behavioral_action_payoff, 
-  #                                payoff_mapping[[as.character(sample_df[i, "scenario"][[1]]) ]]
-  #                                 [[ sample_df[i, "distribution"][[1]] ]]
-  #                                 [[ sample_df[i, "pred_response"][[1]] ]])
-  # }
-  sample_df |>
-    ungroup() |>
-    mutate(scenario = as.character(scenario)) |> 
-    rowwise() |> 
-    mutate(behavioral_payoff = payoff_mapping[[scenario]][[distribution]][[pred_response]]) |>
-    group_by(scenario, vis) |>
+  sample_df %>%
+    ungroup() %>%
+    mutate(scenario = as.character(scenario)) %>% 
+    rowwise() %>% 
+    mutate(behavioral_payoff = payoff_mapping[[scenario]][[distribution]][[pred_response + 1]]) %>%
+    group_by(scenario, vis) %>%
     summarise(payoff = mean(behavioral_payoff))
 }
 
@@ -483,39 +474,31 @@ get_calibrated_behavioral = function(sample_df, distribution_df) {
     "response" = sample_df$pred_response,
     "payoff" = -1
   )
-  sample_with_distribution = sample_df |> merge(distribution_df,
+  sample_with_distribution = sample_df %>% merge(distribution_df,
                                                    by="distribution")
   for (scenario_id in scenario_ids) {
     for (vis_id in vis_ids) {
-      case_data = sample_with_distribution |> filter(scenario == scenario_id,
+      case_data = sample_with_distribution %>% filter(scenario == scenario_id,
                                                      vis == vis_id)
       responses = unique(case_data$pred_response)
       for (response_id in responses) {
-        print(as.numeric(Sys.time())*1000, digits=15)
-        print(1)
-        distributions = case_data |> 
-          filter(pred_response == response_id) |> 
-          dplyr::select("discrete_1":"discrete_30") |> 
+        distributions = case_data %>% 
+          filter(pred_response == response_id) %>% 
+          dplyr::select("discrete_1":"discrete_45") %>% 
           data.matrix()
         distribution = colSums(distributions) / nrow(distributions)
-        print(as.numeric(Sys.time())*1000, digits=15)
-        print(1.5)
-        payoff = Reduce("max", lapply(1:30, 
+        payoff = Reduce("max", lapply(0:30, 
                         function(m, distribution, scenario) scoring_rule(m, distribution, scenario), 
                         distribution = distribution, 
                         scenario = scenario_id))
-        print(as.numeric(Sys.time())*1000, digits=15)
-        print(2)
         calibrated_behavioral_payoff[calibrated_behavioral_payoff$scenario == scenario_id &
                                        calibrated_behavioral_payoff$vis == vis_id &
                                        calibrated_behavioral_payoff$response == response_id, "payoff"] = payoff
-        print(as.numeric(Sys.time())*1000, digits=15)
-        print(3)
       }
     }
   }
-  calibrated_behavioral_payoff |>
-    group_by(scenario, vis) |>
+  calibrated_behavioral_payoff %>%
+    group_by(scenario, vis) %>%
     summarise(payoff = mean(payoff))
 }
 
@@ -551,7 +534,7 @@ pb <- progress_bar$new(
   total = n_round, clear = FALSE, width= 60)
 for (round_id in 1:n_round) {
   pb$tick()
-  sample_df = pred.df |> group_by(.row) |> sample_n(sample_size)
+  sample_df = pred.df %>% group_by(.row) %>% sample_n(sample_size)
   behavioral = get_behavioral(sample_df, distribution_df)
   behavioral$round = round_id
   all_behavioral = rbind(all_behavioral, behavioral)
@@ -560,8 +543,6 @@ for (round_id in 1:n_round) {
   calibrated_behavioral$round = round_id
   all_calibrated_behavioral = rbind(all_calibrated_behavioral, calibrated_behavioral)
 }
-
-c(all_behavioral, all_calibrated_behavioral)
 ```
 
 ### Results
@@ -569,32 +550,34 @@ c(all_behavioral, all_calibrated_behavioral)
 We show the results by visualizations in each scenario.
 
 ```{r visualization}
-score_summary = merge(all_behavioral |> 
-        dplyr::select(behavioral_score = payoff, everything()) |> 
-        group_by(scenario, vis) |> 
+score_summary = merge(all_behavioral %>% 
+        dplyr::select(behavioral_score = payoff, everything()) %>% 
+        group_by(scenario, vis) %>% 
         dplyr::summarise(behavioral_score = mean(behavioral_score)), 
-  all_calibrated_behavioral |> 
-    dplyr::select(calibrated_score = payoff, everything()) |> 
-    group_by(scenario, vis) |> 
-    dplyr::summarise(calibrated_score = mean(calibrated_score)), by = c("scenario", "vis")) |>
-  merge(all_rational_posterior |> 
-          dplyr::select(rational_posterior_score = payoff, everything()), by = c("scenario")) |>
-  merge(all_rational_prior |> 
-          dplyr::select(rational_prior_score = payoff, everything()), by = c("scenario")) |>
+  all_calibrated_behavioral %>% 
+    dplyr::select(calibrated_score = payoff, everything()) %>% 
+    group_by(scenario, vis) %>% 
+    dplyr::summarise(calibrated_score = mean(calibrated_score)), by = c("scenario", "vis")) %>%
+  merge(all_rational_posterior %>% 
+          dplyr::select(rational_posterior_score = payoff, everything()), by = c("scenario")) %>%
+  merge(all_rational_prior %>% 
+          dplyr::select(rational_prior_score = payoff, everything()), by = c("scenario")) %>%
   mutate(decision_loss = calibrated_score - behavioral_score,
          differentiation_loss = rational_posterior_score - calibrated_score,
-         delta = rational_posterior_score - rational_prior_score) |>
-  arrange(decision_loss)
+         delta = rational_posterior_score - rational_prior_score) %>%
+  arrange(decision_loss) %>%
+  mutate(r1 = round(differentiation_loss / delta * 100), 
+         r2 = round(decision_loss / delta * 100))
 ```
 
 ```{r s1}
 ggplot() +
-  stat_slab(data = all_behavioral |> filter(scenario == "s1"), aes(y = vis, x = payoff), fill = "#7570b3", point_size=3) +
-  stat_slab(data = all_calibrated_behavioral |> filter(scenario == "s1"), aes(y = vis, x = payoff), fill = "#d95f02", point_size=3) +
-  geom_vline(xintercept = (all_rational_posterior |> filter(scenario == "s1"))$payoff, linetype = "dashed", linewidth = 1) + 
-  geom_vline(xintercept = (all_rational_prior |> filter(scenario == "s1"))$payoff, linetype = "dashed", linewidth = 1) + 
+  stat_slab(data = all_behavioral %>% filter(scenario == "s1"), aes(y = vis, x = payoff), fill = "#7570b3", point_size=3) +
+  stat_slab(data = all_calibrated_behavioral %>% filter(scenario == "s1"), aes(y = vis, x = payoff), fill = "#d95f02", point_size=3) +
+  geom_vline(xintercept = (all_rational_posterior %>% filter(scenario == "s1"))$payoff, linetype = "dashed", linewidth = 1) + 
+  geom_vline(xintercept = (all_rational_prior %>% filter(scenario == "s1"))$payoff, linetype = "dashed", linewidth = 1) + 
   labs(x = "", y = "") +
-  ylim((score_summary |> filter(scenario == "s1"))$vis) +
+  ylim((score_summary %>% filter(scenario == "s1"))$vis) +
   theme(panel.grid.major.x = element_blank(),
         panel.grid.minor.x = element_blank(),
         panel.grid.major = element_line(colour = "grey"),
@@ -606,12 +589,12 @@ ggplot() +
 
 ```{r s2}
 ggplot() +
-  stat_slab(data = all_behavioral |> filter(scenario == "s2"), aes(y = vis, x = payoff), fill = "#7570b3", point_size=3) +
-  stat_slab(data = all_calibrated_behavioral |> filter(scenario == "s2"), aes(y = vis, x = payoff), fill = "#d95f02", point_size=3) +
-  geom_vline(xintercept = (all_rational_posterior |> filter(scenario == "s2"))$payoff, linetype = "dashed", size = 1) + 
-  geom_vline(xintercept = (all_rational_prior |> filter(scenario == "s2"))$payoff, linetype = "dashed", size = 1) + 
+  stat_slab(data = all_behavioral %>% filter(scenario == "s2"), aes(y = vis, x = payoff), fill = "#7570b3", point_size=3) +
+  stat_slab(data = all_calibrated_behavioral %>% filter(scenario == "s2"), aes(y = vis, x = payoff), fill = "#d95f02", point_size=3) +
+  geom_vline(xintercept = (all_rational_posterior %>% filter(scenario == "s2"))$payoff, linetype = "dashed", size = 1) + 
+  geom_vline(xintercept = (all_rational_prior %>% filter(scenario == "s2"))$payoff, linetype = "dashed", size = 1) + 
   labs(x = "", y = "") +
-  ylim((score_summary |> filter(scenario == "s2"))$vis) +
+  ylim((score_summary %>% filter(scenario == "s2"))$vis) +
   theme(panel.grid.major.x = element_blank(),
         panel.grid.minor.x = element_blank(),
         panel.grid.major = element_line(colour = "grey"),
@@ -623,12 +606,12 @@ ggplot() +
 
 ```{r s3}
 ggplot() +
-  stat_slab(data = all_behavioral |> filter(scenario == "s3"), aes(y = vis, x = payoff), fill = "#7570b3", point_size=3) +
-  stat_slab(data = all_calibrated_behavioral |> filter(scenario == "s3"), aes(y = vis, x = payoff), fill = "#d95f02", point_size=3) +
-  geom_vline(xintercept = (all_rational_posterior |> filter(scenario == "s3"))$payoff, linetype = "dashed", linewidth = 1) + 
-  geom_vline(xintercept = (all_rational_prior |> filter(scenario == "s3"))$payoff, linetype = "dashed", linewidth = 1) + 
+  stat_slab(data = all_behavioral %>% filter(scenario == "s3"), aes(y = vis, x = payoff), fill = "#7570b3", point_size=3) +
+  stat_slab(data = all_calibrated_behavioral %>% filter(scenario == "s3"), aes(y = vis, x = payoff), fill = "#d95f02", point_size=3) +
+  geom_vline(xintercept = (all_rational_posterior %>% filter(scenario == "s3"))$payoff, linetype = "dashed", linewidth = 1) + 
+  geom_vline(xintercept = (all_rational_prior %>% filter(scenario == "s3"))$payoff, linetype = "dashed", linewidth = 1) + 
   labs(x = "", y = "") +
-  ylim((score_summary |> filter(scenario == "s3"))$vis) +
+  ylim((score_summary %>% filter(scenario == "s3"))$vis) +
   theme(panel.grid.major.x = element_blank(),
         panel.grid.minor.x = element_blank(),
         panel.grid.major = element_line(colour = "grey"),

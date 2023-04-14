@@ -159,7 +159,7 @@ binning <- function(bin_size) {
     means = match(means_data, means_dict), 
     ground_truth = ground_truth_data, 
     pred_data=as.integer(inv_log(pred_data) / bin_size)
-  ) |> 
+  ) %>% 
     # counting condition, means, groundtruth, the response numbers, empirical distribution
     count(condition, means, ground_truth, pred_data)
   
@@ -331,16 +331,16 @@ for (i in 1:length(tmp_decision_ground_truth_dict)) {
     decision_ground_truth_dict = c(decision_ground_truth_dict, trans_tmp_decision_ground_truth_dict[i])
   }
 }
-decision_ground_truth_dataframe = decision_ground_truth_dataframe |> transform(evidence = as.numeric(evidence), 
+decision_ground_truth_dataframe = decision_ground_truth_dataframe %>% transform(evidence = as.numeric(evidence), 
                                                        index = as.numeric(index))
 
 decision_freq <- array(0, c(4, 2, 8, 2))
 decision_freq_tibble = tibble(
   condition = match(logistic_model_df$condition, condition_dict), 
   means = match(logistic_model_df$means, means_dict), 
-  ground_truth = (logistic_model_df |> dplyr::select(evidence) |> merge(decision_ground_truth_dataframe, by="evidence"))$index, 
+  ground_truth = (logistic_model_df %>% dplyr::select(evidence) %>% merge(decision_ground_truth_dataframe, by="evidence"))$index, 
   pred_data=as.integer(logistic_model_df$.prediction)
-) |> 
+) %>% 
   # counting condition, means, groundtruth, the response numbers, empirical distribution
   count(condition, means, ground_truth, pred_data)
 

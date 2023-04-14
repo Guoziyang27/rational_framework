@@ -75,9 +75,9 @@ ggplot(mapping = aes(x=factor(0)), colour=x) +
 We output the frames of HOPs into `gganim/`.
 
 ```{r stimuli4}
-hops_df = df |> sample_n(50)  |> mutate(sample_id = 1:50) |> select(hops_low_temp = low_temp, everything())
+hops_df = df %>% sample_n(50)  %>% mutate(sample_id = 1:50) %>% select(hops_low_temp = low_temp, everything())
 
-p = hops_df |> 
+p = hops_df %>% 
   ggplot(mapping = aes(x=factor(0))) +
     geom_hline(yintercept = mean_temp,
                size=2, color="red") +
