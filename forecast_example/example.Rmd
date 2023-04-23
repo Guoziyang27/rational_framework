@@ -24,8 +24,6 @@ dfc = summarySE(df, measurevar="low_temp")
 
 mean_temp = mean(low_temp)
 
-margin = qt(0.975, df = n_size - 1) * sd(low_temp) / sqrt(n_size)
-
 den_temp = density(low_temp)
 ```
 
