@@ -15,9 +15,9 @@ options(mc.cores = parallel::detectCores())
 devAskNewPage(ask = FALSE)
 ```
 
-In this document, we run the rational framework on effect size judgement experiment in Kale et al. We first use two statistical models to predict behavioral agent's probability of superiority (PoS) distribution and decision distribution. We use the models from Kale et al. to generate.
+In this document, we run the rational framework on the effect size judgment experiment in Kale et al. (2020). We first use two statistical models to predict behavioral agents' probability of superiority (PoS) response distribution and their incentivized decision distribution. We use the models from Kale et al. to generate these predictions.
 
-In effect size judgement experiment, we consider two kinds of behavioral agents. The first kind reports their belief of PoS, and the second kind directly reportsthe decision (whether to hire new player in the setting of Kale et al.). The framework basically is a function that estimates five parameters:
+In the effect size judgment experiment, we consider two kinds of behavioral agents. The first kind reports their belief of PoS, and the second kind directly reports their decision (whether to hire the new player in the context of Kale et al.'s experimental task). The framework can be thought of as a function that estimates five parameters under the assumptions of the experiemntal design described in Kale et al. (including target sample size):
 
 1.  The *rational baseline* ($Rprior$): the performance of the rational agent without access to the visualization signals, i.e., with prior belief.
 
@@ -33,7 +33,7 @@ In effect size judgement experiment, we consider two kinds of behavioral agents.
 
 ### Load in Data
 
-This is the data we used to fit the models.
+Read in experimental data used to fit the models, obtained from https://github.com/kalealex/effect-size-jdm.
 
 ```{r}
 # read in data 
@@ -55,7 +55,7 @@ model_df <- model_df %>%
 
 ### Models
 
-Then we reuse the models in Kale et al.
+Then we refit the models in Kale et al.
 
 ```{r}
 # hierarchical linear log odds model
@@ -86,7 +86,7 @@ m.decisions <- brm(
   file = "models/logistic_mdl")
 ```
 
-We generate the data generate the behavioral agents' belief of PoS and decisions by the posterior predictive distribution of the models.
+We generate the data generate the behavioral agents' belief of PoS and decisions by sampling from the posterior predictive distribution of the models. We take 500 draws from the posterior predictive distribution for each combination of ground truth effect size, means level (present or absent), sd_diff level (5 or 15), condition (of 4 visualization types), trial number (centered in log space), and block order (start_means TRUE or FALSE). We will use the dataframe of predictions to later simulate the experiment. 
 
 ```{r addprediction}
 llo_model_df <- model_df %>%
@@ -103,9 +103,11 @@ logistic_model_df <- model_df %>%
 
 ### Setup
 
-These are constants and data initialization.
+We define constants and initialize containers for simulated experimental scores.
 
 ```{r Constants and data}
+
+#JH comment these lines. eg, what is n_data? why do you need rand_size?
 n_data <- 0
 eps <- 1e-5
 
@@ -132,7 +134,7 @@ condition <- c("densities", "intervals", "HOPs", "QDPs")
 decision_truth_map <- list()
 ```
 
-We then define the utility functions need by rational agent calculation.
+We define helper functions needed for the rational agent calculations.
 
 ```{r utility functions}
 inv_log <- function(a) {
@@ -145,12 +147,13 @@ qlogis <- function(a) {
   return(log(a / (1.00 - a)))
 }
 
+#JH - do we ever use this? if not get rid of it
 heuristic <- function(ground_truth, sd_diff) {
   # Computes the heuristic given ground truth and standard deviation difference
   return(0.5 + as.numeric(ground_truth) * sd_diff / 225.0)
 }
 
-
+#JH - explain why we are binning
 binning <- function(bin_size) {
   # Computes the empirical distribution for each combination of condition, mean and ground truth
   freq <- array(0, c(4, 2, 8, 100))
@@ -208,6 +211,7 @@ We define the scoring rule for PoS reports and decision reports respectively.
 
 ```{r scoring rule}
 
+#JH - but we are not using quadratic, right? 
 expect_quadratic <- function(report, pos_truth) {
   # Computes the expected quadratic score given a report and the position of the ground truth
   if (is.numeric(pos_truth)) {
@@ -231,6 +235,9 @@ decision_score <- function(decision, truth) {
 The following code is for calculating rational agent framework. It might take a few minutes to run.
 
 ```{r load data}
+
+#JH - add more comments to this so that I (or anyone else using these materials) can go through it and check what's happening line by line.
+
 calc_score <- function(freq_tmp, bin_size) {
   # Calculates behavioral and calibrated behavioral scores given frequency and bin size
   behavioral_score <- 0.0
