@@ -12,6 +12,7 @@ In this documents, we show how we generate the data from a Gaussian distribution
 
 ```{r datagenerate}
 
+#add comments - is n_size size of a condition, or of whole experiment? 
 n_size = 100
 
 sigma = runif(1, 0, 5)
@@ -72,9 +73,9 @@ ggplot(mapping = aes(x=factor(0)), colour=x) +
 We output the frames of HOPs into `gganim/`.
 
 ```{r stimuli4}
-hops_df = df |> sample_n(50)  |> mutate(sample_id = 1:50) |> select(hops_low_temp = low_temp, everything())
+hops_df = df %>% sample_n(50)  %>% mutate(sample_id = 1:50) %>% select(hops_low_temp = low_temp, everything())
 
-p = hops_df |> 
+p = hops_df %>% 
   ggplot(mapping = aes(x=factor(0))) +
     geom_hline(yintercept = mean_temp,
                size=2, color="red") +
@@ -88,19 +89,22 @@ p = hops_df |>
 animate(p, renderer = file_renderer("./gganim", prefix = "hops", overwrite = TRUE), fps = 5)
 ```
 
-We then draw the payoff of decisions under different possibility of freezing, where the upper segments represent the rational agent with posterior information's payoff and the lower parts are the theoretical lowerbound of decision's payoff.
+We then draw the payoff of decisions under different possibilities of freezing, where the upper segments represent the rational agent with posterior information's payoff and the lower parts are the theoretical lowerbound of decision's payoff.
 
 ```{r payoff}
 theme_set(theme_ggdist())
 
+#give more descriptive names - should be clear what these are
 a = 0
 b = 0
 c = -10
 d = -100
 
+#this code needs to show the calculation ofthese 
 rprior = -7.96
 rpos = -5.69
 
+#describe what these are
 df1 = data.frame(x = c(0, 1), y = c(a, d))
 df2 = data.frame(x = c(0, 1), y = c(c, b))
 
