@@ -17,15 +17,15 @@ devAskNewPage(ask = FALSE)
 
 In this document, we run the rational framework on the effect size judgment experiment in Kale et al. (2020). We first use two statistical models to predict behavioral agents' probability of superiority (PoS) response distribution and their incentivized decision distribution. We use the models from Kale et al. to generate these predictions.
 
-In the effect size judgment experiment, we consider two kinds of behavioral agents. The first kind reports their belief of PoS, and the second kind directly reports their decision (whether to hire the new player in the context of Kale et al.'s experimental task). The framework can be thought of as a function that estimates five parameters under the assumptions of the experiemntal design described in Kale et al. (including target sample size):
+In the effect size judgment experiment, we consider two kinds of behavioral agents. The first kind reports their belief of PoS, and the second kind directly reports their decision (whether to hire the new player in the context of Kale et al.'s experimental task). The framework can be thought of as a function that estimates five parameters under the assumptions of the experienetal design described in Kale et al. (including target sample size):
 
-1.  The *rational baseline* ($Rprior$): the performance of the rational agent without access to the visualization signals, i.e., with prior belief.
+1.  The *rational baseline* ($Rprior$): the performance of the rational agent without access to the visualization signals, i.e., with prior beliefs only.
 
-2.  The *rational benchmark* ($R$): the performance of the rational agent with access to the signal (provided by the visualization), i.e., with the posterior belief.
+2.  The *rational benchmark* ($R$): the performance of the rational agent with access to the signal (provided by the visualization), i.e., with posterior beliefs.
 
 3.  The *behavioral decision score* ($B$): the expected score of the behavioral agent, who reports decisions, predicted by generative statistic model.
 
-4.  The *PoS raw score* ($B^Q$): the expected score of the behavioral agent, who reports PoS, predicted by generative statistic model.
+4.  The *PoS raw score* ($B^Q$): the expected score of the behavioral agent, who reports PoS, predicted by a generative statistic model.
 
 5.  The *calibrated PoS score* ($C^Q$): the score of a rational agent on information structure $\pi^B$ of the behavioral agent who reports PoS.
 
