@@ -23,6 +23,8 @@ theme_set(theme_gray())
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 devAskNewPage(ask = FALSE)
+
+source("model_check.R")
 ```
 
 In this document, we run the rational agent framework for transit decision task and its corresponding visualizations in Fernandes et al. We first use a statistical model to predict behavioral agent's response distribution. The model accounts for random effects such as variance between participants.
@@ -77,9 +79,6 @@ df %>% group_by(scenario) %>% summarise(response = mean(response))
 We start as simply as possible by just modeling the distribution of response with scenarios and use a model check grammar to compare the model's posterior predictive distribution with the distribution in data.
 
 ```{r model}
-# get_prior(data = df, family = "gaussian",
-#           bf(response ~ scenario + vis + trial_normalized))
-
 m.response <- brm(data = df, family = "gaussian",
                    bf(response ~ scenario),
                    prior = c(prior(normal(10, 1), class = Intercept),
@@ -222,7 +221,7 @@ m.response_scenario_vis_trial_interaction_all_mix_sigma_trial_participant <- brm
 m.response_scenario_vis_trial_interaction_all_mix_sigma_trial_participant %>%
   mcplot() +
   mc_distribution("predictive") +
-  mc_uncertainty_representation(c("HOPs")) +
+  mc_uncertainty_representation(c("static")) +
   mc_comparative_layout("superposition") +
   mc_conditional_variables(row_vars = vars(vis), col_vars = vars(scenario))
 ```
@@ -240,8 +239,9 @@ m.final_response <- brm(data = df, family = "gaussian",
                                   prior(normal(0, 0.3), class = b, dpar = sigma)),
                         iter = 10000, warmup = 4000, chains = 4, cores = 4,
                         file = "models/response_final_mdl")
+```
 
-
+```{r}
 m.final_response %>%
   mcplot() +
   mc_distribution("predictive") +
@@ -250,7 +250,10 @@ m.final_response %>%
   mc_conditional_variables(row_vars = vars(vis), col_vars = vars(scenario))
 ```
 
-Finally, we generate the behavioral agents' response by the posterior predictive distribution of the model and calculate a discrete version of distributions (since the space of response lies in discrete numbers of minutes).
+
+### Generating behavioral agents' responses
+
+Finally, we generate the behavioral agents' response by the posterior predictive distribution of the model and calculate a discrete version of distributions (since the space of response lies in discrete numbers of minutes). We also generate the quantile intervals of $60\%$, $85\%$, and $99\%$ to show in textual visualization conditions.
 
 ```{r dataoutput}
 distribution_df = df %>%

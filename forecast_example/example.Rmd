@@ -1,7 +1,11 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
 ```{r setup, include=FALSE}
 library(ggplot2)
 library(ggdist)
-library(Rmisc)
 library(gganimate)
 library(dplyr)
 
@@ -16,20 +20,17 @@ We generate the data from a Gaussian distribution with a fixed mean and varying 
 
 ```{r datagenerate}
 
-#add comments - is n_size size of a condition, or of whole experiment? 
+# Configuration of data generating model
+# Daily low temperature follows a Gaussian distribution with a fixed mu and sigma drawn uniformly from {2, 3, 4, 5}
+mu = 5
+sigma_choices = c(2, 3, 4, 5)
+sigma = sample(sigma_choices, 1)
+
+# Size of sample
 n_size = 100
 
-sigma = runif(1, 0, 5)
-
-low_temp = rnorm(n_size, 5, sigma)
-
-df = data.frame(low_temp, x=factor(0))
-
-dfc = summarySE(df, measurevar="low_temp")
-
-mean_temp = mean(low_temp)
-
-den_temp = density(low_temp)
+low_temp = data.frame(temp = rnorm(n_size, mu, sigma), x=factor(0))
+dense_temp = density(low_temp$temp)
 ```
 
 ## Stimuli
@@ -41,8 +42,8 @@ We generate four types of stimuli (mean, mean + CI, mean + gradience, and mean +
 theme_set(theme_ggdist())
 options(repr.plot.width = 10, repr.plot.height =2)
 
-ggplot(mapping = aes(x=0)) +
-  geom_hline(yintercept=mean(low_temp),
+ggplot(data = low_temp, mapping = aes(x=0)) +
+  geom_hline(aes(yintercept=mean(temp)),
              size=2, color="red") +
   labs(x = "", y = "") + 
   ylim(-20, 60) + theme(aspect.ratio=4) + 
@@ -50,10 +51,11 @@ ggplot(mapping = aes(x=0)) +
 ```
 
 ```{r stimuli2}
-ggplot(mapping = aes(x=factor(0)), colour=x) +
-  geom_hline(yintercept=mean(low_temp),
+ggplot(data = low_temp, mapping = aes(x=factor(0)), colour=x) +
+  geom_hline(aes(yintercept=mean(temp)),
              size=2, color="red")+
-  geom_errorbar(aes(ymin = mean(low_temp) - dfc$sd, ymax = mean(low_temp) + dfc$sd), width = 0.2) +
+  geom_errorbar(aes(ymin = mean(temp) - sd(temp), ymax = mean(temp) + sd(temp)), 
+                width = 0.2) +
   labs(x = "", y = "") +
   theme(axis.text.x = element_blank(),
     axis.ticks = element_blank()) + 
@@ -62,11 +64,11 @@ ggplot(mapping = aes(x=factor(0)), colour=x) +
 ```
 
 ```{r stimuli3}
-ggplot(mapping = aes(x=factor(0)), colour=x) +
-  geom_raster(aes(y = den_temp$x, fill = den_temp$y)) + 
+ggplot() +
+  geom_raster(aes(x = 0, y = dense_temp$x, fill = dense_temp$y)) + 
   guides(fill=guide_legend(title="Density")) +
   scale_fill_gradient(low = "white", high = "#7F9FCE") + 
-  geom_hline(yintercept=mean(low_temp),
+  geom_hline(yintercept=mean(low_temp$temp),
              size=2, color="red") +
   labs(x = "", y = "") +
   theme(axis.text.x = element_blank(),
@@ -74,54 +76,117 @@ ggplot(mapping = aes(x=factor(0)), colour=x) +
   ylim(-20, 60) + theme(aspect.ratio=4) + theme(legend.position = "none") + 
   theme(panel.background = element_rect(fill = "white", colour = "grey50"))
 ```
-We output the frames of HOPs into `gganim/`.
 
 ```{r stimuli4}
-hops_df = df %>% sample_n(50)  %>% mutate(sample_id = 1:50) %>% select(hops_low_temp = low_temp, everything())
+n_hop_sample = 50
 
-p = hops_df %>% 
-  ggplot(mapping = aes(x=factor(0))) +
-    geom_hline(yintercept = mean_temp,
+hops_low_temp = low_temp %>% 
+  sample_n(n_hop_sample) %>% 
+  mutate(sample_id = 1:n_hop_sample) %>% 
+  select(hops_temp = temp, everything())
+
+p = hops_low_temp %>% 
+  ggplot() +
+    geom_hline(yintercept = mean(low_temp$temp),
                size=2, color="red") +
-    geom_point(aes(y = hops_low_temp), shape = '-', size=10, color = '#7F9FCE') +
+    geom_point(aes(x = 0, y = hops_temp), shape = '-', size=10, color = '#7F9FCE') +
     labs(x = "", y = "") + 
-  theme(axis.text.x = element_blank(),
-        axis.ticks = element_blank()) + 
+    theme(axis.text.x = element_blank(),
+          axis.ticks = element_blank()) + 
     ylim(-20, 60) +
     transition_manual(sample_id) + theme(aspect.ratio=4) + 
-  theme(panel.background = element_rect(fill = "white", colour = "grey50"))
-animate(p, renderer = file_renderer("./gganim", prefix = "hops", overwrite = TRUE), fps = 5)
+    theme(panel.background = element_rect(fill = "white", colour = "grey50"))
+
+p
 ```
 
 
-## Expected Score
+## Scoring rule and expected score
+
+### The setting of scoring rule
+
+We design the scoring rule by action and whether it's freezing. We give no salt but freezing a large penalty ($-100$) while salt but not freezing a smaller one (-10). We hold a zero payoff (no penalty) for no salt without freezing and salt with freezing.
+
+```{r payoff}
+# the scoring rule
+no_salt_not_freezing_payoff = 0
+no_salt_freezing_payoff = -100
+salt_not_freezing_payoff = -10
+salt_freezing_payoff = 0
+```
+
+### Rational baseline and benchmark
+
+- Baseline (rational agent with prior knowledge)
+
+```{r}
+# The rational agent's prior belief is the expected possibility of freezing without knowledge about which sigma is
+prior_belief = Reduce("+", sapply(sigma_choices, function(m) {pnorm(0, mu, m)})) / 4
+
+# The payoff of salt or no salt
+payoff_salt = salt_freezing_payoff * prior_belief + salt_not_freezing_payoff * (1 - prior_belief)
+payoff_no_salt = no_salt_freezing_payoff * prior_belief + no_salt_not_freezing_payoff * (1 - prior_belief)
+
+# rational agent's best action and payoff
+rprior_action = ifelse(payoff_no_salt > payoff_salt, "No salt", "Salt")
+rprior = max(payoff_no_salt, payoff_salt)
+
+rprior
+```
+
+- Benchmark (rational agent with visualization)
+
+```{r}
+# The rational agent's posterior believes vary from visualization condictions, where we assume that CI, gradient, and HOPs give full information about the distribution and only mean gives no information about sigma.
+full_information_belief = sapply(sigma_choices, function(m) {pnorm(0, mu, m)})
+only_mean_belief = Reduce("+", sapply(sigma_choices, function(m) {pnorm(0, mu, m)})) / 4
+
+# The payoff of full information
+full_information_payoff_salt = sapply(full_information_belief, function(belief) {
+  salt_freezing_payoff * belief + salt_not_freezing_payoff * (1 - belief)
+})
+full_information_payoff_no_salt = sapply(full_information_belief, function(belief) {
+  no_salt_freezing_payoff * belief + no_salt_not_freezing_payoff * (1 - belief)
+})
+
+# The payoff of only mean
+only_mean_payoff_salt = salt_freezing_payoff * only_mean_belief +
+  salt_not_freezing_payoff * (1 - only_mean_belief)
+only_mean_payoff_no_salt = no_salt_freezing_payoff * only_mean_belief +
+  no_salt_not_freezing_payoff * (1 - only_mean_belief)
+
+# rational agent's best actions and payoffs
+full_information_actions = ifelse(full_information_payoff_salt > full_information_payoff_no_salt,
+                                  "Salt",
+                                  "No salt")
+only_mean_action = ifelse(only_mean_payoff_salt > only_mean_payoff_no_salt, "Salt", "No salt")
+
+rpos_full_information = Reduce("+", sapply(1:length(full_information_payoff_salt),
+                                 function(i) {
+                                   max(full_information_payoff_salt[i], full_information_payoff_no_salt[i])
+                                 })) / 4
+
+rpos_only_mean = max(only_mean_payoff_salt, only_mean_payoff_no_salt)
+
+list(full_information = rpos_full_information, only_mean = rpos_only_mean)
+```
 
 We then draw the expected score of the agent for both no-salt and salt actions as a function of his belief p, where the upper segments represent the rational agent with posterior information's payoff and the lower parts are the theoretical lowerbound of decision's payoff.
 
-```{r payoff}
+```{r}
+# The line of no salt
+df_no_salt = data.frame(x = c(0, 1), y = c(no_salt_not_freezing_payoff, no_salt_freezing_payoff))
+# The line of salt
+df_salt = data.frame(x = c(0, 1), y = c(salt_not_freezing_payoff, salt_freezing_payoff))
+
 theme_set(theme_ggdist())
-
-#give more descriptive names - should be clear what these are
-a = 0
-b = 0
-c = -10
-d = -100
-
-#this code needs to show the calculation ofthese 
-rprior = -7.96
-rpos = -5.69
-
-#describe what these are
-df1 = data.frame(x = c(0, 1), y = c(a, d))
-df2 = data.frame(x = c(0, 1), y = c(c, b))
-
 ggplot() +
-  geom_line(data = df1, aes(x, y), color = "#d95f02", size=1) +
-  geom_line(data = df2, aes(x, y), color = "#7570b3", size=1) +
-  geom_point(data = df1, aes(x, y), color = "#d95f02") +
-  geom_point(data = df2, aes(x, y), color = "#7570b3") +
+  geom_line(data = df_no_salt, aes(x, y), color = "#d95f02", size=1) +
+  geom_line(data = df_salt, aes(x, y), color = "#7570b3", size=1) +
+  geom_point(data = df_no_salt, aes(x, y), color = "#d95f02") +
+  geom_point(data = df_salt, aes(x, y), color = "#7570b3") +
   geom_vline(xintercept = 0, linetype="dashed") +
   geom_vline(xintercept = 1, linetype="dashed") +
   theme(aspect.ratio = 0.5) +
-  labs(x="possibility of superiority", y="payoff")
+  labs(x="Possibility of freezing", y="Payoff")
 ```
