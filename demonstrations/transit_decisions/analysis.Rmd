@@ -27,11 +27,11 @@ devAskNewPage(ask = FALSE)
 
 In this document, we run the rational agent framework for transit decision task and its corresponding visualizations in Fernandes et al. We first use a statistical model to predict behavioral agent's response distribution. The model accounts for random effects such as variance between participants.
 
-The framework basically is a function that estimates four parameters:
+The framework can be thought of as a function that estimates four parameters under the experimental design of Fernandes et al. (including the realized sample size):
 
-1.  The *rational baseline* ($Rprior$): the performance of the rational agent without access to the visualization signals, i.e., with prior belief.
-2.  The *rational benchmark* ($R$): the performance of the rational agent with access to the signal (provided by the visualization), i.e., with the posterior belief.
-3.  The *behavioral score* ($B$): the expected score of the behavioral agent predicted by generative statistic model.
+1.  The *rational baseline* ($Rprior$): the performance of the rational agent without access to the visualization signals, i.e., with prior beliefs only.
+2.  The *rational benchmark* ($R$): the performance of the rational agent with access to the signal (provided by the visualization), i.e., with posterior beliefs.
+3.  The *behavioral score* ($B$): the expected score of the behavioral agent predicted by a generative statistical model.
 4.  The *calibrated behavioral score* ($C$): the score of a rational agent on information structure $\pi^B$.
 
 ## Generate Behavioral Response
