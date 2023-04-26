@@ -163,11 +163,6 @@ m.response_scenario_vis_trial_interaction_all_mix <- brm(data = df, family = "ga
                                                                 prior(normal(0, 0.3), class = sigma)),
                                                       iter = 4000, warmup = 1000, chains = 2, cores = 2,
                                                       file = "models/response_scenario_vis_trial_interaction_all_mix_mdl")
-
-get_prior(data = df, family = "gaussian",
-          bf(response ~ scenario * vis * trial_normalized + (1 | participant),
-             sigma ~ vis * scenario)
-          )
 ```
 
 We then add predictors to $\sigma$ and simulate like we did for $\mu$ to make it sensitive to the distribution of observed data.
