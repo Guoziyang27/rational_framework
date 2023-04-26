@@ -27,20 +27,20 @@ devAskNewPage(ask = FALSE)
 source("model_check.R")
 ```
 
-In this document, we run the rational agent framework for transit decision task and its corresponding visualizations in Fernandes et al. We first use a statistical model to predict behavioral agent's response distribution. The model accounts for random effects such as variance between participants.
+In this document, we run the rational agent analysis for transit decision task and its corresponding visualizations in Fernandes et al. We will first use a statistical model to predict behavioral agents' response distributions to different trials given different assigned visualizations and arrival time distributions. 
 
-The framework basically is a function that estimates four parameters:
+The framework can be thought of as a function that estimates four parameters under the experimental design of Fernandes et al. (including the realized sample size):
 
-1.  The *rational baseline* ($Rprior$): the performance of the rational agent without access to the visualization signals, i.e., with prior belief.
-2.  The *rational benchmark* ($R$): the performance of the rational agent with access to the signal (provided by the visualization), i.e., with the posterior belief.
-3.  The *behavioral score* ($B$): the expected score of the behavioral agent predicted by generative statistic model.
+1.  The *rational baseline* ($Rprior$): the performance of the rational agent without access to the visualization signals, i.e., with prior beliefs only.
+2.  The *rational benchmark* ($R$): the performance of the rational agent with access to the signal (provided by the visualization), i.e., with posterior beliefs.
+3.  The *behavioral score* ($B$): the expected score of the behavioral agent predicted by a generative statistical model.
 4.  The *calibrated behavioral score* ($C$): the score of a rational agent on information structure $\pi^B$.
 
 ## Generate Behavioral Response
 
 ### Load and clean data
 
-We load the experiment data of Fernandes et al., remove duplicated data, and then do data transformations.
+We start by loading the experiment data of Fernandes et al. We remove duplicated data and responses for Scenario 4, which was not analyzed in the original paper. We then do data transformations.
 
 ```{r dataload}
 df = read.csv("data/final_trials.csv") %>%
@@ -48,6 +48,7 @@ df = read.csv("data/final_trials.csv") %>%
 
 df = df[!duplicated(df), ]
 
+#JH - what is this stopifnot for?
 max_trial = 39
 stopifnot(max(df$trial) == max_trial)
 
@@ -63,9 +64,7 @@ df = df %>%
 
 ### Linear Model of Response
 
-Before we fit the model to our data, let's check whether our priors seem reasonable. We use a weakly informative prior for the intercept parameter since we want the population-level centered intercept to be flexible.
-
-Let's look at the basic distribution of response. The graph shows that response follow gaussian distributions, so we set the expected value of the prior on the intercept equal to the mean value of the response that we sampled.
+Our goal is to fit a Bayesian model to predict the participants' responses under different trial conditions from the data collected by Fernandes et al. To inform how we set a prior on the response intercept in this model, we will look at the observed distribution of responses, under the assumption that the mean value of the response distribution is a reasonable estimate to center a (Gaussian) prior on.
 
 ```{r checkdistribution}
 df %>%
@@ -75,8 +74,8 @@ df %>%
 
 df %>% group_by(scenario) %>% summarise(response = mean(response))
 ```
-
-We start as simply as possible by just modeling the distribution of response with scenarios and use a model check grammar to compare the model's posterior predictive distribution with the distribution in data.
+#JH - Ziyang look at the effect-size-jdm github from Kale et al. 2020 and see how the model selection strategy is described - that's a good example of how to edit what's below.
+We start modeling by specifying the simplest possible model regressing response on scenario id. To evaluate the fit of these and subsequent models, we use a custom visual grammar we developed for model checking to compare the model's posterior predictive distribution with the distribution in data.
 
 ```{r model}
 m.response <- brm(data = df, family = "gaussian",
@@ -95,7 +94,7 @@ m.response %>%
   mc_conditional_variables(row_vars = vars(scenario))
 ```
 
-Now we add more predictors into the model to make it more sensitive to the distributions of observed data.
+Now we gradually add predictors for the visualization condition and the normalized trial number into the model.
 
 ```{r model2}
 m.response_scenario_vis_trial <- brm(data = df, family = "gaussian",
@@ -116,7 +115,7 @@ m.response_scenario_vis_trial %>%
 
 ### Add Interactions
 
-We then try to add interactions.
+We next add interactions between the scenario and visualization condition, to allow different visualization conditions to be affected by scenarios differently, as well as different effects of trial number depending on both visualization and scenario.
 
 ```{r model3}
 m.response_scenario_vis_trial_interaction <- brm(data = df, family = "gaussian",
@@ -153,7 +152,7 @@ m.response_scenario_vis_trial_interaction_all %>%
 
 ### Add Random Effects
 
-We then add random effect with participant id to push forward $\mu$ in Gaussian model.
+We next random intercepts to account for differences based on participant id.
 
 ```{r model4}
 m.response_scenario_vis_trial_interaction_all_mix <- brm(data = df, family = "gaussian",
@@ -165,7 +164,7 @@ m.response_scenario_vis_trial_interaction_all_mix <- brm(data = df, family = "ga
                                                       file = "models/response_scenario_vis_trial_interaction_all_mix_mdl")
 ```
 
-We then add predictors to $\sigma$ and simulate like we did for $\mu$ to make it sensitive to the distribution of observed data.
+We next a submodel to predict the standard deviation $\sigma$, starting with visualization condition, scenario, and their interaction, then gradually adding random effects. We also add a random slope to allow for different learning effects by participant to both submodels.
 
 ```{r model5}
 m.response_scenario_vis_trial_interaction_all_mix_sigma <- brm(data = df, family = "gaussian",
@@ -223,7 +222,7 @@ m.response_scenario_vis_trial_interaction_all_mix_sigma_trial_participant %>%
 
 ### Final model
 
-After making model sensitive to all setting variables, we add distribution parameters to model first as linear predictors. Then we found the model fits the distribution of response well.
+Next, we add two additional predictors to capture two critical parameters of the arrival time distributions that are used to generate the trial stimuli. We confirm via model checking that the model fits the distribution well. 
 
 ```{r modelfinal}
 m.final_response <- brm(data = df, family = "gaussian",
@@ -248,7 +247,7 @@ m.final_response %>%
 
 ### Generating behavioral agents' responses
 
-Finally, we generate the behavioral agents' response by the posterior predictive distribution of the model and calculate a discrete version of distributions (since the space of response lies in discrete numbers of minutes). We also generate the quantile intervals of $60\%$, $85\%$, and $99\%$ to show in textual visualization conditions.
+We now simulate behavioral agents' responses using the posterior predictive distribution of the model, separately for each combination of trial parameters (including scenario, visualization condition, trial number, and stimuli distribution parameters). Because the response variable is discrete (numbers of minutes as integer) we calculate a discrete version of the distributions. We also generate the quantile intervals of $60\%$, $85\%$, and $99\%$ that are shown in the text conditions as we need these to simulate behavioral agent scores in those conditions.
 
 ```{r dataoutput}
 distribution_df = df %>%
@@ -277,7 +276,7 @@ pred.df = meta.df %>%
 
 ### Scoring rule
 
-First we define the scoring rule in transit decision making problem, which is the expect payoff over a bus arriving distribution for a rider arriving time.
+First we define the scoring rules for each analyzed scenario in the transit decision problem. The rules allow us to calculate the expected payoff over a bus arriving distribution given a participant's stated arrival time at the stop.
 
 ```{r scoringrule}
 scoring_rule = function(rider_at_stop, distribution, scenario) {
@@ -330,7 +329,7 @@ scoring_rule = function(rider_at_stop, distribution, scenario) {
 
 ### Setup
 
-Then we prepare with calculating and transforming some variables.
+We prepare by calculating and transforming some variables.
 
 ```{r precalculation}
 scenario_ids = unique(df$scenario)
@@ -340,7 +339,7 @@ vis_ids = unique(df$vis)
 pred.df$pred_response = round(pmax(pmin(pred.df$pred_response, 30), 1))
 ```
 
-We calculate the dictionary of payoff for all scenario, existing distribution, and rider arriving time to accelerate later calculation. This might take a few minutes.
+We create a dictionary of payoffs for all scenario, stimuli distributions, and rider arrivial times at the stop to accelerate later calculations. This may take a few minutes.
 
 ```{r payoff mapping}
 payoff_mapping = list()
@@ -365,7 +364,7 @@ for (scenario_id in scenario_ids) {
 }
 ```
 
-We define some functions to calculate four parameters.
+We define some functions to calculate the four parameters of interest in the rational agent framework.
 
 ```{r setup rational agent framework}
 get_rational_posterior = function(sample_df, distribution_df) {
@@ -504,7 +503,7 @@ get_calibrated_behavioral = function(sample_df, distribution_df) {
 
 ### Pre-experiment analysis
 
-We calculate the rational baseline and benchmark. This might take a few minutes.
+We calculate the rational baseline and benchmark. This may take a few minutes.
 
 ```{r calculation rational posterior}
 all_rational_posterior = get_rational_posterior(meta.df, distribution_df)
@@ -518,7 +517,7 @@ all_rational_prior
 
 ### Post-experiment analysis
 
-We calculate the behavioral agent's score and the calibrated behavioral score. To show the uncertainty of behavioral agent's decision, we run a hundred rounds and draw a subset of decisions in each round. This will take a few hours. Please adjust your expectation before running this. Reducing number of round (`n_round`) can be less time-consuming.
+We calculate the behavioral agents' expected score and the expected calibrated behavioral score. To capture uncertainty, we simulate the experiment a hundred times, drawing a new sample of participant arrival time decisions in each round. This provides us with a distribution comprised of 100 simulated scores This will take a few hours. 
 
 ```{r calculation behavioral}
 n_round = 100

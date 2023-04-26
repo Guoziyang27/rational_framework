@@ -22,5 +22,6 @@ demonstrations/ - *Materials for the demonstrations of the framework on Kale et 
      - Code used to generate behavioral agent responses (model predcitions).
      - Code used to simulate the rational framework and calculate the payoffs for each agent.
      - Code used to generate visualizations related to Fernandes et al. used in the paper.
+   - model_check.R: Custom functions for plotting model predictions against observed data, used to check the models we fit to Fernandes et al. data.
    - data/
      - anonymized experimental data from Fernandes et al. paper.
