@@ -48,9 +48,7 @@ df = read.csv("data/final_trials.csv") %>%
 
 df = df[!duplicated(df), ]
 
-#JH - what is this stopifnot for?
-max_trial = 39
-stopifnot(max(df$trial) == max_trial)
+max_trial = max(df$trial)
 
 df = df %>%
   mutate(
@@ -64,7 +62,9 @@ df = df %>%
 
 ### Linear Model of Response
 
-Our goal is to fit a Bayesian model to predict the participants' responses under different trial conditions from the data collected by Fernandes et al. To inform how we set a prior on the response intercept in this model, we will look at the observed distribution of responses, under the assumption that the mean value of the response distribution is a reasonable estimate to center a (Gaussian) prior on.
+We start as simply as possible by just modeling the distribution of response.
+
+Before we fit the model to our data, let's check that our priors seem reasonable. We'll use a weakly informative prior for the intercept parameter since we want the population-level centered intercept to be flexible. We set the expected value of the prior on the intercept equal to the mean value of the response that we sampled.
 
 ```{r checkdistribution}
 df %>%
@@ -74,8 +74,33 @@ df %>%
 
 df %>% group_by(scenario) %>% summarise(response = mean(response))
 ```
-#JH - Ziyang look at the effect-size-jdm github from Kale et al. 2020 and see how the model selection strategy is described - that's a good example of how to edit what's below.
-We start modeling by specifying the simplest possible model regressing response on scenario id. To evaluate the fit of these and subsequent models, we use a custom visual grammar we developed for model checking to compare the model's posterior predictive distribution with the distribution in data.
+
+We start modeling by specifying the simplest possible model regressing response on scenario id. 
+
+```{r}
+# get_prior(ddata = df, family = "gaussian", bf(response ~ scenario))
+# starting as simple as possible: learn the distribution of response over scenario
+prior.response <- brm(data = df, family = "gaussian",
+                      bf(response ~ scenario),
+                      prior = c(prior(normal(10, 1), class = Intercept),
+                                prior(normal(1, 0.5), class = b),
+                                prior(normal(0, 0.5), class = sigma)),
+                      sample_prior = "only",
+                      iter = 3000, warmup = 500, chains = 2, cores = 2)
+```
+
+Let's take a look at our prior predictive distribution compared with observed data.To evaluate the fit of these and subsequent models, we use a custom visual grammar we developed for model checking to compare the model's posterior predictive distribution with the distribution in data. The red lines represent prediction from model and the blue line is the distribution of the observed data.
+
+```{r}
+prior.response %>% 
+  mcplot() +
+  mc_distribution("predictive") +
+  mc_uncertainty_representation(c("static")) +
+  mc_comparative_layout("superposition") +
+  mc_conditional_variables(row_vars = vars(scenario))
+```
+
+Now, let's fit the model to data.
 
 ```{r model}
 m.response <- brm(data = df, family = "gaussian",
@@ -85,16 +110,49 @@ m.response <- brm(data = df, family = "gaussian",
                              prior(normal(0, 0.5), class = sigma)),
                    iter = 3000, warmup = 500, chains = 2, cores = 2,
                file = "models/response_scenario_mdl")
+```
 
+Let's check our posterior predictive distribution.
+
+```{r}
 m.response %>% 
   mcplot() +
   mc_distribution("predictive") +
-  mc_uncertainty_representation(c("HOPs")) +
+  mc_uncertainty_representation(c("static")) +
   mc_comparative_layout("superposition") +
   mc_conditional_variables(row_vars = vars(scenario))
 ```
 
+Our model is not sensitive to visualization condition and trial number, so we expect to see mismatches here.
+
 Now we gradually add predictors for the visualization condition and the normalized trial number into the model.
+
+Before we fit the model to our data, let's check that our priors seem reasonable. Since we are now including more slope parameters for visualization condition and the normalized trial number in our model, we can dial down the width of our prior for sigma to avoid over-dispersion of predicted responses.
+
+```{r}
+# get_prior(data = df, family = "gaussian", bf(response ~ scenario + vis + trial_normalized))
+# model with scenario, vis condition, and normalized trial number
+prior.response_scenario_vis_trial <- brm(data = df, family = "gaussian",
+                                         bf(response ~ scenario + vis + trial_normalized),
+                                         prior = c(prior(normal(10, 1), class = Intercept),
+                                                    prior(normal(1, 0.5), class = b),
+                                                    prior(normal(0, 0.3), class = sigma)),
+                                          sample_prior = "only",
+                                         iter = 3000, warmup = 500, chains = 2, cores = 2)
+```
+
+Let's look at our prior predictive distribution.
+
+```{r}
+prior.response_scenario_vis_trial %>% 
+  mcplot() +
+  mc_distribution("predictive") +
+  mc_uncertainty_representation(c("static")) +
+  mc_comparative_layout("superposition") +
+  mc_conditional_variables(row_vars = vars(vis), col_vars = vars(scenario))
+```
+
+Now, let's fit the model to data.
 
 ```{r model2}
 m.response_scenario_vis_trial <- brm(data = df, family = "gaussian",
@@ -104,18 +162,26 @@ m.response_scenario_vis_trial <- brm(data = df, family = "gaussian",
                          prior(normal(0, 0.3), class = sigma)),
                iter = 3000, warmup = 500, chains = 2, cores = 2,
                file = "models/response_scenario_vis_trial_mdl")
+```
 
+Let's check our posterior predictive distribution.
+
+```{r}
 m.response_scenario_vis_trial %>% 
   mcplot() +
   mc_distribution("predictive") +
   mc_uncertainty_representation(c("static")) +
   mc_comparative_layout("superposition") +
-  mc_conditional_variables(row_vars = vars(scenario), col_vars = vars(vis))
+  mc_conditional_variables(row_vars = vars(vis), col_vars = vars(scenario))
 ```
+
+These don't look great. We can see that the pattern in each visualization condition and scenario combination is more complex than our model predicts. We then add interactions between predictors to see whether our model can fit better.
 
 ### Add Interactions
 
 We next add interactions between the scenario and visualization condition, to allow different visualization conditions to be affected by scenarios differently, as well as different effects of trial number depending on both visualization and scenario.
+
+We use the same priors as we did for the previous model. Now, let's fit the model to our data.
 
 ```{r model3}
 m.response_scenario_vis_trial_interaction <- brm(data = df, family = "gaussian",
@@ -125,15 +191,22 @@ m.response_scenario_vis_trial_interaction <- brm(data = df, family = "gaussian",
                                             prior(normal(0, 0.3), class = sigma)),
                                   iter = 3000, warmup = 500, chains = 2, cores = 2,
                                   file = "models/response_scenario_vis_trial_interaction_mdl")
+```
 
+Let's check our posterior predictive distribution.
+
+```{r}
 m.response_scenario_vis_trial_interaction %>%
   mcplot() +
   mc_distribution("predictive") +
   mc_uncertainty_representation(c("static")) +
   mc_comparative_layout("superposition") +
-  mc_conditional_variables(row_vars = vars(scenario), col_vars = vars(vis))
+  mc_conditional_variables(row_vars = vars(vis), col_vars = vars(scenario))
+```
 
+We continue to add interaction with the normalized trial number.
 
+```{r}
 m.response_scenario_vis_trial_interaction_all <- brm(data = df, family = "gaussian",
                                               bf(response ~ scenario * vis * trial_normalized),
                                               prior = c(prior(normal(10, 1), class = Intercept),
@@ -141,7 +214,11 @@ m.response_scenario_vis_trial_interaction_all <- brm(data = df, family = "gaussi
                                                         prior(normal(0, 0.3), class = sigma)),
                                               iter = 3000, warmup = 500, chains = 2, cores = 2,
                                               file = "models/response_scenario_vis_trial_interaction_all_mdl")
+```
 
+Let's check our posterior predictive distribution.
+
+```{r}
 m.response_scenario_vis_trial_interaction_all %>%
   mcplot() +
   mc_distribution("predictive") +
@@ -150,7 +227,9 @@ m.response_scenario_vis_trial_interaction_all %>%
   mc_conditional_variables(row_vars = vars(vis), col_vars = vars(scenario))
 ```
 
-### Add Random Effects
+This looks better, but it is still having trouble fitting the data. It may be that the model is not capturing the individual variability in response patterns. Next we'll add hierarchy to our model.
+
+### Add Hierarchy for Intercepts
 
 We next random intercepts to account for differences based on participant id.
 
@@ -164,7 +243,20 @@ m.response_scenario_vis_trial_interaction_all_mix <- brm(data = df, family = "ga
                                                       file = "models/response_scenario_vis_trial_interaction_all_mix_mdl")
 ```
 
-We next a submodel to predict the standard deviation $\sigma$, starting with visualization condition, scenario, and their interaction, then gradually adding random effects. We also add a random slope to allow for different learning effects by participant to both submodels.
+Let's check our posterior predictive distribution.
+
+```{r}
+m.response_scenario_vis_trial_interaction_all_mix %>%
+  mcplot() +
+  mc_distribution("predictive") +
+  mc_uncertainty_representation(c("static")) +
+  mc_comparative_layout("superposition") +
+  mc_conditional_variables(row_vars = vars(vis), col_vars = vars(scenario))
+```
+
+### Add Sigma
+
+We next fit a submodel to predict the standard deviation $\sigma$, starting with visualization condition, scenario, and their interaction, then gradually adding random effects. We also add a random slope to allow for different learning effects by participant to both submodels.
 
 ```{r model5}
 m.response_scenario_vis_trial_interaction_all_mix_sigma <- brm(data = df, family = "gaussian",
@@ -175,15 +267,18 @@ m.response_scenario_vis_trial_interaction_all_mix_sigma <- brm(data = df, family
                                                             prior(normal(0, 0.3), class = b, dpar = sigma)),
                                                   iter = 10000, warmup = 4000, chains = 4, cores = 4,
                                                   file = "models/response_scenario_vis_trial_interaction_all_mix_sigma_mdl")
+```
 
-
+```{r}
 m.response_scenario_vis_trial_interaction_all_mix_sigma %>%
   mcplot() +
   mc_distribution("predictive") +
   mc_uncertainty_representation(c("static")) +
   mc_comparative_layout("superposition") +
   mc_conditional_variables(row_vars = vars(vis), col_vars = vars(scenario))
+```
 
+```{r}
 m.response_scenario_vis_trial_interaction_all_mix_sigma_trial <- brm(data = df, family = "gaussian",
                                                             formula = bf(response ~ scenario * vis * trial_normalized + (trial_normalized | participant),
                                                                          sigma ~ vis * scenario * trial_normalized),
@@ -192,16 +287,18 @@ m.response_scenario_vis_trial_interaction_all_mix_sigma_trial <- brm(data = df, 
                                                                       prior(normal(0, 0.3), class = b, dpar = sigma)),
                                                             iter = 10000, warmup = 4000, chains = 4, cores = 4,
                                                             file = "models/response_scenario_vis_trial_interaction_all_mix_sigma_trial_mdl")
+```
 
-
+```{r}
 m.response_scenario_vis_trial_interaction_all_mix_sigma_trial %>%
   mcplot() +
   mc_distribution("predictive") +
   mc_uncertainty_representation(c("static")) +
   mc_comparative_layout("superposition") +
   mc_conditional_variables(row_vars = vars(vis), col_vars = vars(scenario))
+```
 
-
+```{r}
 m.response_scenario_vis_trial_interaction_all_mix_sigma_trial_participant <- brm(data = df, family = "gaussian",
                                                                                  formula = bf(response ~ scenario * vis * trial_normalized + (trial_normalized | participant),
                                                                                               sigma ~ vis * scenario * trial_normalized + (trial_normalized | participant)),
@@ -210,8 +307,9 @@ m.response_scenario_vis_trial_interaction_all_mix_sigma_trial_participant <- brm
                                                                                             prior(normal(0, 0.3), class = b, dpar = sigma)),
                                                                                  iter = 10000, warmup = 4000, chains = 4, cores = 4,
                                                                                  file = "models/response_scenario_vis_trial_interaction_all_mix_sigma_trial_participant_mdl")
+```
 
-
+```{r}
 m.response_scenario_vis_trial_interaction_all_mix_sigma_trial_participant %>%
   mcplot() +
   mc_distribution("predictive") +
@@ -269,7 +367,7 @@ meta.df = df %>%
 
 pred.df = meta.df %>%
   add_predicted_draws(m.final_response, ndraws = 500, value="pred_response", re_formula = NA) %>%
-  group_by()
+  ungroup()
 ```
 
 ## Rational Agent Framework
@@ -281,6 +379,7 @@ First we define the scoring rules for each analyzed scenario in the transit deci
 ```{r scoringrule}
 scoring_rule = function(rider_at_stop, distribution, scenario) {
   all_scenario_params = list(
+    # delay_bonus, wait_penalty, destination_reward, and max_destination_time
     s1 = c(8, 14, 14, 90),
     s2 = c(14, 14, 14, 60),
     s3 = c(8, 17, 17, 120)
@@ -336,10 +435,11 @@ scenario_ids = unique(df$scenario)
 distribution_ids = unique(df$distribution)
 vis_ids = unique(df$vis)
 
+# round the response predicted by model into interger and then bound them in [1, 30]
 pred.df$pred_response = round(pmax(pmin(pred.df$pred_response, 30), 1))
 ```
 
-We create a dictionary of payoffs for all scenario, stimuli distributions, and rider arrivial times at the stop to accelerate later calculations. This may take a few minutes.
+We create a dictionary of payoffs for all scenario, stimuli distributions, and rider arivial times at the stop to accelerate later calculations. This may take a few minutes.
 
 ```{r payoff mapping}
 payoff_mapping = list()
@@ -369,6 +469,7 @@ We define some functions to calculate the four parameters of interest in the rat
 ```{r setup rational agent framework}
 get_rational_posterior = function(sample_df, distribution_df) {
   
+  # for visualization with full information, calculate the optimal payoff in 0:30 response for each scenario and distribution
   posterior_optimal_payoff = list()
   for (scenario_id in scenario_ids) {
     distribution_seq = list()
@@ -381,6 +482,9 @@ get_rational_posterior = function(sample_df, distribution_df) {
   
   sample_with_distribution = sample_df %>% merge(distribution_df,
                                                    by="distribution")
+  
+  # for partial information (text showing 60% interval, 80% interval, 99% interval), 
+  # calculate the optimal payoff for each scenario and the interval value
   vis_value_distribution_mapping = list()
   for (scenario_id in scenario_ids) {
     case_data = sample_with_distribution %>% filter(scenario == scenario_id)
@@ -404,6 +508,7 @@ get_rational_posterior = function(sample_df, distribution_df) {
     vis_value_distribution_mapping[[scenario_id]] = vis_seq
   }
   
+  # function used to retrieve optimal payoff from precalculated arrays
   get_payoff = function(scenario_id, vis, data) {
     scenario_id = as.character(scenario_id)
     if (!startsWith(vis, "text")) {
@@ -413,15 +518,12 @@ get_rational_posterior = function(sample_df, distribution_df) {
     }
   }
   
+  # simulate rational agent for every line in experiment data
   posterior_action_payoff = c()
   for (i in 1:nrow(sample_with_distribution)) {
     new_payoff = get_payoff(sample_with_distribution[i, "scenario"],
                                            sample_with_distribution[i, "vis"],
                                            sample_with_distribution[i, ])
-    if (length(new_payoff) != 1) {
-      print(i)
-      print(length(new_payoff))
-    }
     posterior_action_payoff = c(posterior_action_payoff, 
                                 new_payoff)
   }
@@ -438,12 +540,16 @@ get_rational_prior = function(sample_df, distribution_df) {
   prior_action_payoff = data.frame(matrix(ncol=2,nrow=0, 
                                          dimnames=list(NULL, c("scenario", "payoff"))))
   for (scenario_id in scenario_ids) {
+    # the distributions in the scenario
     distributions = prior_belief %>% 
       filter(scenario == scenario_id) %>% 
       dplyr::select("discrete_1":"discrete_45") %>% 
       data.matrix()
-        
+    
+    # the expected distribution in the scenario
     distribution = colSums(distributions) / nrow(distributions)
+    
+    # optimal payoff of 0:30 response
     payoff = Reduce("max", lapply(0:30, 
                                   function(m, distribution, scenario) scoring_rule(m, distribution, scenario), 
                                   distribution = distribution, 
@@ -455,6 +561,7 @@ get_rational_prior = function(sample_df, distribution_df) {
 }
 
 get_behavioral = function(sample_df, distribution_df) {
+  # for behavioral agent's payoff, we retrieve the payoff for the scenario, the distribution, and the response in precalculated arrays
   sample_df %>%
     ungroup() %>%
     mutate(scenario = as.character(scenario)) %>% 
@@ -479,11 +586,14 @@ get_calibrated_behavioral = function(sample_df, distribution_df) {
                                                      vis == vis_id)
       responses = unique(case_data$pred_response)
       for (response_id in responses) {
+        # the distributions in the scenario, the visualization condition, and the behavioral response
         distributions = case_data %>% 
           filter(pred_response == response_id) %>% 
           dplyr::select("discrete_1":"discrete_45") %>% 
           data.matrix()
+        # the expected distribution
         distribution = colSums(distributions) / nrow(distributions)
+        # the optimal payoff in the expected distribution
         payoff = Reduce("max", lapply(0:30, 
                         function(m, distribution, scenario) scoring_rule(m, distribution, scenario), 
                         distribution = distribution, 
@@ -529,13 +639,18 @@ all_calibrated_behavioral = tibble()
 pb <- progress_bar$new(
   format = "  behavioral [:bar] :percent eta: :eta",
   total = n_round, clear = FALSE, width= 60)
+# we run n_round rounds to generate n_round samples and calculate behavioral agent's score and calibrated score for each sample
 for (round_id in 1:n_round) {
   pb$tick()
+  # sample
   sample_df = pred.df %>% group_by(.row) %>% sample_n(sample_size)
+  
+  #behavioral score
   behavioral = get_behavioral(sample_df, distribution_df)
   behavioral$round = round_id
   all_behavioral = rbind(all_behavioral, behavioral)
   
+  # calibrated score
   calibrated_behavioral = get_calibrated_behavioral(sample_df, distribution_df)
   calibrated_behavioral$round = round_id
   all_calibrated_behavioral = rbind(all_calibrated_behavioral, calibrated_behavioral)
