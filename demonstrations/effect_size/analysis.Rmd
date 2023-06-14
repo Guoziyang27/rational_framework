@@ -1,7 +1,7 @@
 ---
 output:
-  pdf_document: default
   html_document: default
+  pdf_document: default
 ---
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -102,11 +102,6 @@ llo_model_df <- model_df %>%
 logistic_model_df <- model_df %>%
   data_grid(evidence, means, sd_diff, condition, trial, start_means) %>%
   add_predicted_draws(m.decisions, re_formula = NA, ndraws = 5000, seed = 1234)
-```
-
-```{r}
-llo_model_df <- read.csv("./data/posterior_predictive_draws_prob_superiority.csv")
-logistic_model_df <- read.csv("./data/posterior_predictive_draws_decisions.csv")
 ```
 
 ## Rational Agent Framework
