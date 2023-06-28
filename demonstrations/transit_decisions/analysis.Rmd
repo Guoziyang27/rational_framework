@@ -576,42 +576,79 @@ get_behavioral = function(sample_df, distribution_df) {
     summarise(payoff = mean(behavioral_payoff))
 }
 
-get_calibrated_behavioral = function(sample_df, distribution_df) {
-  calibrated_behavioral_payoff = tibble(
-    "scenario" = sample_df$scenario,
-    "vis" = sample_df$vis,
-    "response" = sample_df$pred_response,
-    "payoff" = -1
-  )
+get_calibrated_payoff_mapping = function(sample_df, distribution_df) {
+  # return the optimal payoff based on the distribution rational agent learns when viewing a joint distribution of response, scenario, visualization, and distribution
   sample_with_distribution = sample_df %>% merge(distribution_df,
                                                    by="distribution")
+  calibrated_payoff_mapping = list()
   for (scenario_id in scenario_ids) {
-    for (vis_id in vis_ids) {
-      case_data = sample_with_distribution %>% filter(scenario == scenario_id,
-                                                     vis == vis_id)
-      responses = unique(case_data$pred_response)
-      for (response_id in responses) {
-        # the distributions in the scenario, the visualization condition, and the behavioral response
-        distributions = case_data %>% 
-          filter(pred_response == response_id) %>% 
-          dplyr::select("discrete_1":"discrete_45") %>% 
-          data.matrix()
-        # the expected distribution
-        distribution = colSums(distributions) / nrow(distributions)
-        # the optimal payoff in the expected distribution
-        payoff = Reduce("max", lapply(0:30, 
-                        function(m, distribution, scenario) scoring_rule(m, distribution, scenario), 
-                        distribution = distribution, 
-                        scenario = scenario_id))
-        calibrated_behavioral_payoff[calibrated_behavioral_payoff$scenario == scenario_id &
-                                       calibrated_behavioral_payoff$vis == vis_id &
-                                       calibrated_behavioral_payoff$response == response_id, "payoff"] = payoff
-      }
+    scenario_list = list()
+    case_data = sample_with_distribution %>% filter(scenario == scenario_id)
+    responses = unique(case_data$pred_response)
+    for (response_id in responses) {
+      # the distributions in the scenario, the visualization condition, and the behavioral response
+      distributions = case_data %>% 
+        filter(pred_response == response_id) %>% 
+        dplyr::select("discrete_1":"discrete_45") %>% 
+        data.matrix()
+      # the expected distribution
+      distribution = colSums(distributions) / nrow(distributions)
+      calibrated_response = which.max(lapply(0:30, 
+                      function(m, distribution, scenario) scoring_rule(m, distribution, scenario),
+                      distribution = distribution,
+                      scenario = scenario_id))
+      
+      scenario_list[[as.character(response_id)]] = calibrated_response
     }
+    calibrated_payoff_mapping[[scenario_id]] = scenario_list
   }
-  calibrated_behavioral_payoff %>%
+  calibrated_payoff_mapping
+}
+
+get_calibrated_behavioral = function(sample_df, calibrated_payoff_mapping) {
+  sample_df %>%
+    ungroup() %>%
+    mutate(scenario = as.character(scenario)) %>% 
+    rowwise() %>% 
+    mutate(calibrated_payoff = payoff_mapping[[scenario]][[distribution]][[calibrated_payoff_mapping[[scenario]][[as.character(pred_response)]]]]) %>%
     group_by(scenario, vis) %>%
-    summarise(payoff = mean(payoff))
+    summarise(payoff = mean(calibrated_payoff))
+  
+  # calibrated_behavioral_payoff = tibble(
+  #   "scenario" = sample_df$scenario,
+  #   "vis" = sample_df$vis,
+  #   "response" = sample_df$pred_response,
+  #   "payoff" = -1
+  # )
+  # sample_with_distribution = sample_df %>% merge(distribution_df,
+  #                                                  by="distribution")
+  # for (scenario_id in scenario_ids) {
+  #   for (vis_id in vis_ids) {
+  #     case_data = sample_with_distribution %>% filter(scenario == scenario_id,
+  #                                                    vis == vis_id)
+  #     responses = unique(case_data$pred_response)
+  #     for (response_id in responses) {
+  #       # the distributions in the scenario, the visualization condition, and the behavioral response
+  #       distributions = case_data %>% 
+  #         filter(pred_response == response_id) %>% 
+  #         dplyr::select("discrete_1":"discrete_45") %>% 
+  #         data.matrix()
+  #       # the expected distribution
+  #       distribution = colSums(distributions) / nrow(distributions)
+  #       # the optimal payoff in the expected distribution
+  #       payoff = Reduce("max", lapply(0:30, 
+  #                       function(m, distribution, scenario) scoring_rule(m, distribution, scenario), 
+  #                       distribution = distribution, 
+  #                       scenario = scenario_id))
+  #       calibrated_behavioral_payoff[calibrated_behavioral_payoff$scenario == scenario_id &
+  #                                      calibrated_behavioral_payoff$vis == vis_id &
+  #                                      calibrated_behavioral_payoff$response == response_id, "payoff"] = payoff
+  #     }
+  #   }
+  # }
+  # calibrated_behavioral_payoff %>%
+  #   group_by(scenario, vis) %>%
+  #   summarise(payoff = mean(payoff))
 }
 
 ```
@@ -635,11 +672,32 @@ all_rational_prior
 We calculate the behavioral agents' expected score and the expected calibrated behavioral score. To capture uncertainty, we simulate the experiment a hundred times, drawing a new sample of participant arrival time decisions in each round. This provides us with a distribution comprised of 100 simulated scores This will take a few hours. 
 
 ```{r calculation behavioral}
-n_round = 100
+n_round = 500
 sample_size = 10
 
 all_behavioral = tibble()
 all_calibrated_behavioral = tibble()
+
+# s1_response_id = sort(unique((pred.df |> filter(scenario == "s1"))$pred_response))
+# s2_response_id = sort(unique((pred.df |> filter(scenario == "s2"))$pred_response))
+# s3_response_id = sort(unique((pred.df |> filter(scenario == "s3"))$pred_response))
+# 
+# while (TRUE) {
+#   sample_df = pred.df %>% group_by(.row) %>% sample_n(100)
+#   if (identical(sort(unique((sample_df |> filter(scenario == "s1"))$pred_response)), s1_response_id) &&
+#       identical(sort(unique((sample_df |> filter(scenario == "s2"))$pred_response)), s2_response_id) &&
+#       identical(sort(unique((sample_df |> filter(scenario == "s3"))$pred_response)), s3_response_id)) {
+#     break
+#   }
+#   print(sort(unique((sample_df |> filter(scenario == "s1"))$pred_response)))
+#   print(sort(unique((sample_df |> filter(scenario == "s2"))$pred_response)))
+#   print(sort(unique((sample_df |> filter(scenario == "s3"))$pred_response)))
+# }
+
+sample_df = rbind(pred.df %>% group_by(scenario, pred_response) %>% slice(1),
+                  pred.df %>% group_by(.row) %>% sample_n(sample_size * 10))
+
+calibrated_payoff_mapping = get_calibrated_payoff_mapping(sample_df, distribution_df)
 
 pb <- progress_bar$new(
   format = "  behavioral [:bar] :percent eta: :eta",
@@ -656,7 +714,7 @@ for (round_id in 1:n_round) {
   all_behavioral = rbind(all_behavioral, behavioral)
   
   # calibrated score
-  calibrated_behavioral = get_calibrated_behavioral(sample_df, distribution_df)
+  calibrated_behavioral = get_calibrated_behavioral(sample_df, calibrated_payoff_mapping)
   calibrated_behavioral$round = round_id
   all_calibrated_behavioral = rbind(all_calibrated_behavioral, calibrated_behavioral)
 }

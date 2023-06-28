@@ -226,7 +226,7 @@ While interpolation is more oftern to used here to infer a density function of P
 we choose binning based on the sparse distribution of PoS reports, where interpolation can't recover the data well.
 
 ```{r}
-bin_size <- 0.02
+bin_size <- 0.05
 freq <- binning(bin_size)
 ```
 
@@ -255,22 +255,14 @@ score_ind <- c()
 score_behav <- c()
 score_calib <- c()
 
-calc_score <- function(freq_tmp, bin_size) {
+calc_score <- function(cond_posterior, freq_tmp, bin_size) {
   # Calculates behavioral and calibrated behavioral scores given frequency and bin size
   behavioral_score <- 0.0
   for (i in 1:n_ground_truth) {
     behavioral_score <- behavioral_score + sum(freq_tmp[i, ] * pos_score(compute_freq(0:99, bin_size), i - 1)) / sum(freq_tmp)
   }
   
-  # cond_posterior is the rational agent's belief over ground truth after viewing behavioral agents' PoS reports
-  cond_posterior <- array(0, c(n_ground_truth, 100))
-  for (i in 1:n_ground_truth) {
-    for (j in 1:100) {
-      if (!eq_err(freq_tmp[i, j], 0.0)) {
-        cond_posterior[i, j] <- freq_tmp[i, j] / sum(freq_tmp[, j])
-      }
-    }
-  }
+
 
   # calib_posterior is rational agent's PoS with belief as cond_posterior
   calib_posterior <- lo_ground_truth %*% cond_posterior
@@ -288,13 +280,28 @@ for (t in 1:4) {
   for (m in 1:2) {
     tmp_behav <- c()
     tmp_calib <- c()
+    
+      # cond_posterior is the rational agent's belief over ground truth after viewing behavioral agents' PoS reports
+    freq_tmp <- rand_draw(freq[t, m, 1, ])
+    for (j in 2:n_ground_truth) {
+      freq_tmp <- rbind(freq_tmp, rand_draw(freq[t, m, j, ]))
+    }
+          
+    cond_posterior <- array(0, c(n_ground_truth, 100))
+    for (i in 1:n_ground_truth) {
+      for (j in 1:100) {
+        if (!eq_err(freq_tmp[i, j], 0.0)) {
+          cond_posterior[i, j] <- freq_tmp[i, j] / sum(freq_tmp[, j])
+        }
+      }
+    }
     # run n_round to generate n_round samples and calculate a score for each sample
     for (i in 1:n_round) {
       freq_tmp <- rand_draw(freq[t, m, 1, ])
       for (j in 2:n_ground_truth) {
         freq_tmp <- rbind(freq_tmp, rand_draw(freq[t, m, j, ]))
       }
-      behav_tmp <- calc_score(freq_tmp, bin_size)
+      behav_tmp <- calc_score(cond_posterior, freq_tmp, bin_size)
       tmp_behav <- c(tmp_behav, behav_tmp[[1]])
       tmp_calib <- c(tmp_calib, behav_tmp[[2]])
     }
@@ -423,8 +430,8 @@ We show the results by visualization.
 
 ggplot() +
   stat_slab(data = all_behavioral, aes(y = mean, x = behavioral), fill = "#7570b3", point_size=1.5) +
-  stat_slab(data = all_behavioral, aes(y = mean, x = calibrated_behavioral), fill = "#d95f02", point_size=1.5) +
   stat_slab(data = all_behavioral, aes(y = mean, x = behavioral_decision), fill = "#1b9e77", point_size=1.5) +
+  stat_slab(data = all_behavioral, aes(y = mean, x = calibrated_behavioral), fill = "#d95f02", point_size=1.5) +
   geom_vline(xintercept = all_rational[[1]][1], linetype = "dashed", size = 1) +
   geom_vline(xintercept = all_rational [[1]][2], linetype = "dashed", size = 1) + 
   labs(x = "", y = "") +
