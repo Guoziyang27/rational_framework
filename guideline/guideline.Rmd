@@ -33,13 +33,13 @@ For example, in a weather forecast example (slightly different from what's in th
 -   signals: $v \in V$ showing daily low temperature $t$.
 -   scoring rule: $S(b, \theta) = -(b - \theta)^2$ for reporting belief of freezing.
 
-## Simulated generation of data using quantile response
+## Simulated generation of data using quantal response equilibrium
 
 We generate the experimental data for weather forecast example using quantal response equilibrium, where we keep the distribution of sigma following uniform distribution.
 
 ```{r generate data}
 action_space = seq(0, 1, 0.02)
-p_d = c(0.25, 0.25, 0.25, 0.25)
+p_d = c(0.25, 0.25, 0.25, 0.25)  # p(d) the prior knowledge of the distribution of data generating models
 
 data = data.frame(
   mu = 5, 
@@ -52,6 +52,7 @@ data = data.frame(
     freezing_prob = pnorm(0, mu, sigma),
     behavioral_action = list(sample(action_space, 100, 
                                            replace = TRUE, 
+                                           # quantal response equilibrium
                                            prob = exp(-100 * (action_space - freezing_prob) * (action_space - freezing_prob))))
   ) %>%
   unnest(cols = c(behavioral_action))
@@ -132,6 +133,7 @@ payoffs = lapply(action_space, function(a) {
 })
 prior_action = action_space[[which.max(payoffs)]]
 
+# simulate the action of rational agent with only prior knowledge on all experiments
 prior_payoff = mean((data %>% 
   mutate(payoff = scoring_rule(prior_action, freezing_prob)))$payoff)
 
@@ -200,6 +202,7 @@ so $p(d_1|vis) = p(vis|d) \cdot p(d) / p(vis) \approx 1$ when the visualization 
 ```{r}
 sum_payoff = 0
 for (i in 1:nrow(data)) {
+  # rational agent can infer the exact data generating model based on signal
   posterior_belief = data[[i, "freezing_prob"]]
   posterior_action = action_space[[which.max(lapply(action_space, function(a) {
     scoring_rule(a, posterior_belief)
@@ -253,6 +256,7 @@ RETURN *avg_payoff*
 ```{r}
 behavioral_payoff = data %>%
   rowwise() %>%
+  # apply scoring rule for behavioral actions
   mutate(payoff = scoring_rule(behavioral_action, freezing_prob)) %>%
   dplyr::group_by(vis) %>%
   summarise(payoff = mean(payoff))
@@ -312,6 +316,7 @@ RETURN *avg_payoff*
 -   R in weather forecast example
 
 ```{r}
+# the joint distribution of actions and data generating models
 joint_action_distribution = data %>%
   dplyr::group_by(mu, sigma, freezing_prob, behavioral_action) %>%
   summarise(count = n()) %>%
@@ -321,11 +326,13 @@ joint_action_distribution = data %>%
 sum_payoff = 0
 for (i in 1:nrow(data)) {
   action = data[[i, "behavioral_action"]]
-  p_a = nrow(data %>% filter(behavioral_action == action)) / nrow(data)
+  
   action_joint = joint_action_distribution %>%
     filter(behavioral_action == action)
   sigmas = action_joint$sigma
   distributions = pnorm(0, mu, sigma_choices)
+  
+  p_a = nrow(data %>% filter(behavioral_action == action)) / nrow(data)
   p_a_d = as.list(rep(0, length(sigma_choices)))
   names(p_a_d) = as.character(sigma_choices)
   p_a_d[as.character(sigmas)] = action_joint$count  # p(a|d)
