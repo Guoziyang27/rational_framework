@@ -138,20 +138,27 @@ decision_payoffs = lapply(decision_space, function(a) {
   decision_scoring_rule(a, prior_belief)
 })
 prior_reporting_decision = decision_space[[which.max(decision_payoffs)]]
+prior_reporting_decision
 
 belief_payoffs = lapply(belief_space, function(b) {
   belief_scoring_rule(b, prior_belief)
 })
 prior_reporting_belief = belief_space[[which.max(belief_payoffs)]]
+prior_reporting_belief
 
 # simulate the action of rational agent with only prior knowledge on all experiments
-prior_decision_payoff = mean(decision_scoring_rule(prior_reporting_decision, 
-                                                   data$freezing_prob))
-prior_belief_payoff = mean(belief_scoring_rule(prior_reporting_belief, 
-                                               data$freezing_prob))
+for (i in 1:nrow(data)) {
+  data[i, "prior_decision_payoff"] = 
+    decision_scoring_rule(prior_reporting_decision, data[i, "freezing_prob"])
+  data[i, "prior_belief_payoff"] = 
+    belief_scoring_rule(prior_reporting_belief, data[i, "freezing_prob"])
+}
 
-round(c(prior_decision_payoff, prior_reporting_decision, 
-        prior_belief_payoff, prior_reporting_belief), 2)
+prior_payoff = data %>%
+  dplyr::group_by(vis) %>%
+  summarise(prior_decision_payoff = mean(prior_decision_payoff),
+            prior_belief_payoff = mean(prior_belief_payoff))
+prior_payoff
 @
 
 The result says the optimal expected payoff of the rational agent with only prior knowledge is $-7.96$ for both reporting decision and belief, and the optimal decision and belief are both $0$, meaning that the rational agent with only prior belief would always report $0$ and the rational baseline is $-7.96$.
@@ -192,8 +199,6 @@ In the weather forecast example, the visualizations provide perfect information 
 so $p(d_1|vis) = p(vis|d) \cdot p(d) / p(vis) \approx 1$ when the visualization is fixed.
 
 <<benchmark>>=
-posterior_decision_payoff = 0
-posterior_belief_payoff = 0
 for (i in 1:nrow(data)) {
   # rational agent can infer the exact data generating model based on signal
   if (data[[i, "vis"]] == "mean") {
@@ -259,13 +264,14 @@ $behavioral \gets payoff / \text{\# of row in }D$\;
 \paragraph{R in weather forecast example}
 
 <<behavioral>>=
+for (i in 1:nrow(data)) {
+  data[i, "behavioral_decision_payoff"] = 
+    decision_scoring_rule(data[i, "behavioral_decision"], data[i, "freezing_prob"])
+  data[i, "behavioral_belief_payoff"] = 
+    belief_scoring_rule(data[i, "behavioral_belief"], data[i, "freezing_prob"])
+}
+
 behavioral_payoff = data %>%
-  rowwise() %>%
-  # apply scoring rule for behavioral actions
-  mutate(behavioral_decision_payoff = 
-           decision_scoring_rule(behavioral_decision, freezing_prob),
-         behavioral_belief_payoff = 
-           belief_scoring_rule(behavioral_belief, freezing_prob)) %>%
   dplyr::group_by(vis) %>%
   summarise(behavioral_decision_payoff = mean(behavioral_decision_payoff),
             behavioral_belief_payoff = mean(behavioral_belief_payoff))

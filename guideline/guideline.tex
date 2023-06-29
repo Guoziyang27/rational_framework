@@ -109,12 +109,12 @@ For the purposes of our walkthrough of the rational agent approach, we generate 
 # A tibble: 6 × 6
      mu sigma vis      freezing_prob behavioral_decision behavioral_belief
   <dbl> <dbl> <chr>            <dbl>               <dbl>             <dbl>
-1     5     2 gradient       0.00621                   0              0.1 
-2     5     2 gradient       0.00621                   0              0.24
-3     5     2 gradient       0.00621                   0              0.26
-4     5     2 gradient       0.00621                   0              0.04
-5     5     2 gradient       0.00621                   0              0.16
-6     5     2 gradient       0.00621                   0              0.32
+1     5     2 gradient       0.00621                   0              0.12
+2     5     2 gradient       0.00621                   0              0.34
+3     5     2 gradient       0.00621                   0              0.32
+4     5     2 gradient       0.00621                   1              0.2 
+5     5     2 gradient       0.00621                   0              0.38
+6     5     2 gradient       0.00621                   0              0.14
 \end{Soutput}
 \end{Schunk}
 
@@ -153,20 +153,43 @@ $baseline \gets payoff / \text{\# of row in }D$\;\Comment{rational baseline is t
 +   decision_scoring_rule(a, prior_belief)
 + })
 > prior_reporting_decision = decision_space[[which.max(decision_payoffs)]]
+> prior_reporting_decision
+\end{Sinput}
+\begin{Soutput}
+[1] 0
+\end{Soutput}
+\begin{Sinput}
 > belief_payoffs = lapply(belief_space, function(b) {
 +   belief_scoring_rule(b, prior_belief)
 + })
 > prior_reporting_belief = belief_space[[which.max(belief_payoffs)]]
-> # simulate the action of rational agent with only prior knowledge on all experiments
-> prior_decision_payoff = mean(decision_scoring_rule(prior_reporting_decision, 
-+                                                    data$freezing_prob))
-> prior_belief_payoff = mean(belief_scoring_rule(prior_reporting_belief, 
-+                                                data$freezing_prob))
-> round(c(prior_decision_payoff, prior_reporting_decision, 
-+         prior_belief_payoff, prior_reporting_belief), 2)
+> prior_reporting_belief
 \end{Sinput}
 \begin{Soutput}
-[1] -7.96  0.00 -7.96  0.00
+[1] 0
+\end{Soutput}
+\begin{Sinput}
+> # simulate the action of rational agent with only prior knowledge on all experiments
+> for (i in 1:nrow(data)) {
++   data[i, "prior_decision_payoff"] = 
++     decision_scoring_rule(prior_reporting_decision, data[i, "freezing_prob"])
++   data[i, "prior_belief_payoff"] = 
++     belief_scoring_rule(prior_reporting_belief, data[i, "freezing_prob"])
++ }
+> prior_payoff = data %>%
++   dplyr::group_by(vis) %>%
++   summarise(prior_decision_payoff = mean(prior_decision_payoff),
++             prior_belief_payoff = mean(prior_belief_payoff))
+> prior_payoff
+\end{Sinput}
+\begin{Soutput}
+# A tibble: 4 × 3
+  vis           prior_decision_payoff prior_belief_payoff
+  <chr>                         <dbl>               <dbl>
+1 HOPs                          -7.96               -7.96
+2 gradient                      -7.96               -7.96
+3 mean                          -7.96               -7.96
+4 mean+interval                 -7.96               -7.96
 \end{Soutput}
 \end{Schunk}
 
@@ -209,8 +232,6 @@ so $p(d_1|vis) = p(vis|d) \cdot p(d) / p(vis) \approx 1$ when the visualization 
 
 \begin{Schunk}
 \begin{Sinput}
-> posterior_decision_payoff = 0
-> posterior_belief_payoff = 0
 > for (i in 1:nrow(data)) {
 +   # rational agent can infer the exact data generating model based on signal
 +   if (data[[i, "vis"]] == "mean") {
@@ -287,13 +308,13 @@ $behavioral \gets payoff / \text{\# of row in }D$\;
 
 \begin{Schunk}
 \begin{Sinput}
+> for (i in 1:nrow(data)) {
++   data[i, "behavioral_decision_payoff"] = 
++     decision_scoring_rule(data[i, "behavioral_decision"], data[i, "freezing_prob"])
++   data[i, "behavioral_belief_payoff"] = 
++     belief_scoring_rule(data[i, "behavioral_belief"], data[i, "freezing_prob"])
++ }
 > behavioral_payoff = data %>%
-+   rowwise() %>%
-+   # apply scoring rule for behavioral actions
-+   mutate(behavioral_decision_payoff = 
-+            decision_scoring_rule(behavioral_decision, freezing_prob),
-+          behavioral_belief_payoff = 
-+            belief_scoring_rule(behavioral_belief, freezing_prob)) %>%
 +   dplyr::group_by(vis) %>%
 +   summarise(behavioral_decision_payoff = mean(behavioral_decision_payoff),
 +             behavioral_belief_payoff = mean(behavioral_belief_payoff))
@@ -303,10 +324,10 @@ $behavioral \gets payoff / \text{\# of row in }D$\;
 # A tibble: 4 × 3
   vis           behavioral_decision_payoff behavioral_belief_payoff
   <chr>                              <dbl>                    <dbl>
-1 HOPs                               -6.71                    -8.30
-2 gradient                           -7.00                    -8.62
-3 mean                               -6.79                    -8.39
-4 mean+interval                      -6.80                    -8.39
+1 HOPs                               -6.84                    -8.49
+2 gradient                           -6.89                    -8.65
+3 mean                               -7.02                    -8.49
+4 mean+interval                      -6.97                    -8.41
 \end{Soutput}
 \end{Schunk}
 
@@ -412,10 +433,10 @@ $benchmark \gets payoff / \text{\# of row in }D$\;
 # A tibble: 4 × 3
   vis           calibrated_decision_payoff calibrated_belief_payoff
   <chr>                              <dbl>                    <dbl>
-1 HOPs                               -6.71                    -5.75
-2 gradient                           -7.00                    -5.75
-3 mean                               -6.79                    -5.75
-4 mean+interval                      -6.80                    -5.80
+1 HOPs                               -6.84                    -5.76
+2 gradient                           -6.89                    -5.77
+3 mean                               -7.02                    -5.75
+4 mean+interval                      -6.97                    -5.77
 \end{Soutput}
 \end{Schunk}
 
