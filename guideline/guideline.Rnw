@@ -1,0 +1,380 @@
+\documentclass{article}
+\usepackage[T1]{fontenc}
+\usepackage{algorithm2e}
+\usepackage{algpseudocode}
+\usepackage{amsmath}
+
+\SetKwComment{Comment}{/* }{ */}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+\title{Guideline for rational agent framework}
+
+\begin{document}
+
+\maketitle
+
+\RestyleAlgo{ruled}
+
+\SweaveOpts{concordance=TRUE}
+
+<<setup, include=FALSE>>=
+library(dplyr)
+library(tidyr)
+library(modelr)
+knitr::opts_chunk$set(echo = TRUE)
+@
+
+This document walks through how to apply the rational agent framework to your visualization experiment. We provide general guidance and walk through the forecast visualization example in the paper in more detail.
+
+\section{Identifying the decision problem}
+
+Before we get started to applying the framework to a visualization experiment, we first need to identify the decision-making problem that forms the task in the experiment. Identify the decision problem involves identifying:
+
+\begin{itemize}
+    \item \textbf{states} (the description of reality we want help users understand with visualization, e.g. whether the temperature is above or below freezing in our weather forecast example).
+    \item \textbf{data generating model} (the process that generates the stimuli, i.e. the joint distribution between the state and the visualization. In the weather forecast example, the visualization is the distribution where the temperature is drawn, and the state is freezing / not freezing).
+    \item an \textbf{action space} (the report space that the experiment requires users to use, e.g. whether or not to salt the parking lot).
+    \item \textbf{signals} (the visualizations you show to users for helping them make decisions).
+    \item a \textbf{scoring rule} (the quality score or payoff that the experiment assigns to participants depending on their action and the state in reality, e.g. how many points you lose if you salt when it doesn't freeze or don't salt but it freezes).
+\end{itemize}
+
+For the purpose of these guidelines, we will assume an experiment that is a slight variation on the weather forecast example in the paper, where we are asking users to report two actions. The first is the binary decision on whether to salt the parking lot and the second is their belief about the possibility of freezing in discrete levels after view a visualization about daily lowest temperature. The decision-making problem can be formalized as:
+
+\begin{itemize}
+    \item states: $\theta \in \Theta = \{0=\text{not freezing}, 1=\text{freezing}\}$.
+    \item data generating models: daily low temperature $t \sim N(\mu, \sigma^2)$; $\Pr[\theta = 1] = \Pr[t \leq 0]$; $\mu = 5$ fixed and $\sigma$ uniformly from $\{2, 3, 4, 5\}$.
+    \item action space: $a \in A = \{0 = \text{not salt}, 1 = \text{salt}\}$; $b \in B = \{0, 0.02, 0.04, 0.06, ..., 0.96, 0.98, 1\}$, reporting the belief of freezing in discrete levels.
+    \item signals: $v \in V$ showing daily low temperature $t$.
+    \item scoring rule: $S_{decision}(a, \theta)$ for reporting the decision of salting, see equation 3 in the paper; $S_{belief}(b, \theta) = S_{decision}(\argmax_{a}{S_{decision}(a, b)}, \theta)$ for reporting the belief of freezing.
+\end{itemize}
+
+The following R code defines the scoring rule $S_{decision}$ and $S_{belief}$. For $S_{decision}$, we follow the payoff function in equation 3 in the paper. For $S_{belief}$, we score belief by the optimal decision on belief, i.e. assuming the agent makes the decision rationally on their belief, what would be their score?
+
+<<scoring_rule>>=
+belief_space = seq(0, 1, 0.02)
+decision_space = c(0, 1)
+
+decision_scoring_rule = function(decision, state) {
+  # See equation 3 in the paper
+  -100 * (1 - decision) * state - 10 * decision * (1 - state)
+}
+belief_scoring_rule = function(belief, state) {
+  # apply the optimal decision based on the belief
+  decision = decision_space[apply(matrix(unlist(lapply(decision_space, function(d) {
+      decision_scoring_rule(d, belief)
+  })), ncol = length(belief)), 2, which.max)]
+  #   decision_space[[which.max(lapply(decision_space, function(d) {
+  #   decision_scoring_rule(d, belief)
+  # }))]]
+  
+  decision_scoring_rule(decision, state)
+}
+@
+
+\section{For the purposes of this walkthrough only: Simulate behavioral data using quantal response equilibrium}
+
+For the purposes of our walkthrough of the rational agent approach, we generate mock experimental data for the weather forecast example described above using quantal response equilibrium\footnote{https://www.sciencedirect.com/science/article/pii/S0899825685710238} (a type of behavioral model that assumes the probability of any particular action being chosen is positively related to the payoff from that action, i.e. very bad actions are unlikely), where we keep the distribution of sigma, i.e. the distribution of data generating models, as uniform distribution.
+
+<<generate data>>=
+p_d = c(0.25, 0.25, 0.25, 0.25)
+# p(d) the prior knowledge of the distribution of data generating models
+
+sigma_choices = c(2, 3, 4, 5)
+mu = 5
+
+data = data.frame(
+  mu = mu, 
+  sigma = sigma_choices,
+  vis = c("mean", "mean+interval", "gradient", "HOPs")
+) %>% 
+  data_grid(mu, sigma, vis) %>% 
+  rowwise() %>%
+  mutate(
+    freezing_prob = pnorm(0, mu, sigma),
+    behavioral_decision = list(sample(decision_space, 100, 
+      replace = TRUE, 
+      # quantal response equilibrium
+      prob = exp(0.2 * decision_scoring_rule(decision_space, freezing_prob)))),
+    behavioral_belief = list(sample(belief_space, 100, 
+      replace = TRUE, 
+      # quantal response equilibrium
+      prob = exp(belief_scoring_rule(belief_space, freezing_prob))))
+  ) %>%
+  unnest(cols = c(behavioral_decision, behavioral_belief))
+
+head(data)
+@
+
+\section{Pre-experiment analysis}
+
+In this section, we will show how to calculate the three pre-experiment quantities (rational baseline, rational benchmark, and value of information) that the rational agent framework offers. The rational agent's prior belief is before seeing the visualization, the unconditional probability of each state is drawn according to the data generating model. the rational agent will update their belief on data generating models by the implied distribution of them in visualizations. For the purpose of walking through the steps entailed in applying the framework, we provide general pseudo code first, then walk through the specific example about weather forecast with full code that assumes as behavioral data is the simulated data set generated above.
+
+\subsubsection{Rational baseline}
+
+To calculate the rational baseline, we first calculate the prior belief of rational agent and their associated action choice given these beliefs. Then we calculate what score the rational agent would get under the scoring rule if they complete the experiment with only prior knowledge.
+
+\paragraph{Pseudo code} 
+See algorithm \ref{alg:baseline}.
+
+\begin{algorithm}[!h]
+\caption{Rational baseline}\label{alg:baseline}
+\KwIn{the experimental data $D$ with each row representing one experimental trial, the distribution of data generating models $p(d)$, the action space $A$, and the scoring rule $S$}
+\KwOut{the rational baseline $baseline$}
+$belief \gets E_{d\sim p(d)}(d)$\;\Comment{the prior belief of the data generating models}
+$action \gets \argmax_{a \sim A}{E_{\theta \sim belief}(S(a, \theta))}$\;\Comment{the action made on prior belief}
+$payoff \gets 0$\;
+\For{$row \in D$}{
+  $dist \gets \text{data generating model used in } row$\;
+  $payoff \gets payoff + E_{\theta \sim dist}(S(action, \theta))$\;
+}
+$baseline \gets payoff / \text{\# of row in }D$\;\Comment{rational baseline is the rational agent's expected payoff in the experiment}
+\end{algorithm}
+
+\paragraph{R in weather forecast example}
+
+<<baseline>>=
+prior_belief = Reduce("+", 
+  sapply(sigma_choices, function(m) {pnorm(0, mu, m)})) / length(sigma_choices)
+
+decision_payoffs = lapply(decision_space, function(a) {
+  decision_scoring_rule(a, prior_belief)
+})
+prior_reporting_decision = decision_space[[which.max(decision_payoffs)]]
+
+belief_payoffs = lapply(belief_space, function(b) {
+  belief_scoring_rule(b, prior_belief)
+})
+prior_reporting_belief = belief_space[[which.max(belief_payoffs)]]
+
+# simulate the action of rational agent with only prior knowledge on all experiments
+prior_decision_payoff = mean(decision_scoring_rule(prior_reporting_decision, 
+                                                   data$freezing_prob))
+prior_belief_payoff = mean(belief_scoring_rule(prior_reporting_belief, 
+                                               data$freezing_prob))
+
+round(c(prior_decision_payoff, prior_reporting_decision, 
+        prior_belief_payoff, prior_reporting_belief), 2)
+@
+
+The result says the optimal expected payoff of the rational agent with only prior knowledge is $-7.96$ for both reporting decision and belief, and the optimal decision and belief are both $0$, meaning that the rational agent with only prior belief would always report $0$ and the rational baseline is $-7.96$.
+
+\subsection{Rational benchmark}
+
+Then we simulate the rational agent on the experimental data. After viewing the visualization signals, the rational agent will update the belief about states based on their belief about the distribution about data generating model. For example, the visualization signals $vis$ provides an information about the possibility that this visualization could occur in data generating models $d$ as $p(vis|d)$ and the prior belief about the distribution of data generating models is $p(d)$. Then the posterior belief about the distribution of data generating models could be $p(d|vis) = p(vis|d) \cdot p(d) / p(vis)$.
+
+\paragraph{Pseudo code}
+See algorithm \ref{alg:benchmark}.
+
+\begin{algorithm}[!h]
+\caption{Rational benchmark}\label{alg:benchmark}
+\KwIn{the experimental data $D$ with each row representing one experimental trial, the distribution of data generating models $p(d)$, the action space $A$, and the scoring rule $S$}
+\KwOut{the rational benchmark $benchmark$}
+$payoff \gets 0$\;
+\For{$row \in D$}{
+  $vis \gets \text{visualization used in } row$\; 
+  $p(d|vis) = p(vis|d) \cdot p(d) / p(vis)$\;\Comment{the posterior belief of the distribution of data generating models}
+  $belief \gets E_{d\sim p(d|vis)}(d)$\;\Comment{the belief of the data generating models}
+  $action \gets \argmax_{a \sim A}{E_{\theta \sim belief}(S(a, \theta))}$\;\Comment{the action made on posterior belief}
+  $dist \gets \text{data generating model used in } row$\;
+  $payoff \gets payoff + E_{\theta \sim dist}(S(action, \theta))$\;\Comment{the expected payoff with posterior information}
+}
+$benchmark \gets payoff / \text{\# of row in }D$\;
+\end{algorithm}
+
+\paragraph{R in weather forecast example}
+In the weather forecast example, the visualizations provide perfect information about the variance of data except "mean" visualization, so the updated distribution of data generating models could converge to a situation that only one data generating model has possibility with almost 1 and others are all almost 0. In this case, we assume that the rational agent would know which data generating model is using with certainty after viewing one visualization. Formally, assuming that $vis$ provides perfect information about data generating model $d_1$, then
+
+\begin{align*}
+    p(vis|d_1) &\approx 1\\
+    p(vis|d_2) &\approx 0\\
+    ...&\\
+    p(vis|d_n) &\approx 0
+\end{align*}
+
+so $p(d_1|vis) = p(vis|d) \cdot p(d) / p(vis) \approx 1$ when the visualization is fixed.
+
+<<benchmark>>=
+posterior_decision_payoff = 0
+posterior_belief_payoff = 0
+for (i in 1:nrow(data)) {
+  # rational agent can infer the exact data generating model based on signal
+  if (data[[i, "vis"]] == "mean") {
+    posterior_belief = prior_belief
+  } else {
+    posterior_belief = data[[i, "freezing_prob"]]
+  }
+  posterior_reporting_decision = decision_space[[
+    which.max(lapply(decision_space, function(a) {
+      decision_scoring_rule(a, posterior_belief)
+    }))
+  ]]
+  posterior_reporting_belief = belief_space[[
+    which.max(lapply(belief_space, function(b) {
+      belief_scoring_rule(b, posterior_belief)
+    }))
+  ]]
+  data[[i, "posterior_decision_payoff"]] = 
+    decision_scoring_rule(posterior_reporting_decision, data[[i, "freezing_prob"]])
+  
+  data[[i, "posterior_belief_payoff"]] = 
+    belief_scoring_rule(posterior_reporting_belief, data[[i, "freezing_prob"]])
+}
+posterior_payoff = data %>%
+  dplyr::group_by(vis) %>%
+  summarise(posterior_decision_payoff = mean(posterior_decision_payoff),
+            posterior_belief_payoff = mean(posterior_belief_payoff))
+posterior_payoff
+@
+
+When seeing "mean" visualization, the rational agent didn't get the information about sigma, so they can't update the belief on data generating models, and the rational benchmark for both reporting action and belief turns out to be $-7.96$, which is the same as rational baseline. For the other visualization, the rational benchmark for both reporting action and belief is $-5.69$.
+
+\subsection{Value of information}
+
+We define the value of information in rational agent framework as the difference between rational benchmark and baseline, i.e. the maximum improvement can be made when agent has the right prior knowledge and follows the Bayesian rule to update the belief.
+
+In the example of weather forecast, the value of information is \texttt{posterior\_payoff - prior\_payoff = 2.27} expect \texttt{0} for "mean" visualization.
+
+\section{Post-experiment analysis}
+
+In this section, we will calculate the score of behavioral agents and the score of the calibrated behavioral.
+
+\subsection{Behavioral score}
+
+We use the scoring rule on behavioral agents' actions.
+
+\paragraph{Pseudo code}
+See algorithm \ref{alg:behavioral}.
+
+\begin{algorithm}[!h]
+\caption{Behavioral score}\label{alg:behavioral}
+\KwIn{the experimental data $D$ with each row representing one experimental trial, and the scoring rule $S$}
+\KwOut{the behavioral scores $behavioral$}
+$payoff \gets 0$\;
+\For{$row \in D$}{
+  $dist \gets \text{data generating model used in } row$\;
+  $action \gets \text{action made by the behavioral agent in } row$\;
+  $payoff \gets payoff + E_{\theta \sim dist}(S(action, \theta))$\;\Comment{the expected score of behavioral action}
+}
+$behavioral \gets payoff / \text{\# of row in }D$\;
+\end{algorithm}
+
+\paragraph{R in weather forecast example}
+
+<<behavioral>>=
+behavioral_payoff = data %>%
+  rowwise() %>%
+  # apply scoring rule for behavioral actions
+  mutate(behavioral_decision_payoff = 
+           decision_scoring_rule(behavioral_decision, freezing_prob),
+         behavioral_belief_payoff = 
+           belief_scoring_rule(behavioral_belief, freezing_prob)) %>%
+  dplyr::group_by(vis) %>%
+  summarise(behavioral_decision_payoff = mean(behavioral_decision_payoff),
+            behavioral_belief_payoff = mean(behavioral_belief_payoff))
+behavioral_payoff
+@
+
+Since the behavioral agent's actions are generated randomly but not from real persons, some of the payoffs are below rational baseline, e.g. the behavioral payoff when reporting belief. Then we will introduce the calibrated behavioral score, which can represent the behavioral in the baseline-and-benchmark scale.
+
+\subsection{Calibrated behavioral score}
+
+The rational baseline and the rational benchmark could be considered as the evaluating scale for behavioral agents when assuming that the agent gets the right prior knowledge, updates the belief by Bayesian rule, and optimizes the decision based on belief. However, unfortunately, behavioral agents may not follow these requirements, which makes them less comparable to the scale. Thus, we propose the calibrated behavioral score, where the rational agent calibrates the behavioral agent's behaviors into Bayesian and thus falls into the interval between rational baseline and benchmark.
+
+In the calibration, the rational agent is not using the visualizations as signals but using the actions made by behavioral agents as signals. When getting a behavioral agent's action $a$, they will look at what's the possibilities that this action will appear in different data generating models ($p(a|d)$) and use these possibilities to update the prior belief ($p(d|a) = p(a|d) \cdot p(d) / p(a)$).
+
+The pseudo code is as following...
+
+\paragraph{Pseudo code}
+See algorithm \ref{alg:calibrated}.
+
+\begin{algorithm}[!h]
+\caption{Calibrated behavioral score}\label{alg:calibrated}
+\KwIn{the experimental data $D$ with each row representing one experimental trial, the distribution of data generating models $p(d)$, the action space $A$, and the scoring rule $S$}
+\KwOut{the calibrated behavioral score $benchmark$}
+$payoff \gets 0$\;
+\For{$row \in D$}{
+  $signal \gets \text{action made by the behavioral agent in } row$
+  $p(d|signal) = p(signal|d) \cdot p(d) / p(signal)$\; \Comment{the posterior belief of the distribution of data generating models in calibration}
+  $belief \gets E_{d\sim p(d|signal)}(d)$\;\Comment{the belief of the data generating models}
+  $action \gets \argmax_{a \sim A}{E_{\theta \sim belief}(S(a, \theta))}$\; \Comment{the action made on posterior belief}
+  $dist \gets \text{data generating model used in } row$\;
+  $payoff \gets payoff + E_{\theta \sim dist}(S(action, \theta))$\; \Comment{the expected payoff with posterior information}
+}
+$benchmark \gets payoff / \text{\# of row in }D$\;
+\end{algorithm}
+
+\paragraph{R in weather forecast example}
+
+<<calibrated>>=
+# the joint distribution of actions and data generating models
+joint_decision_distribution = data %>%
+  dplyr::group_by(mu, sigma, freezing_prob, behavioral_decision) %>%
+  summarise(count = n()) %>%
+  dplyr::group_by(mu, sigma, freezing_prob) %>%
+  mutate(count = count / sum(count))
+
+joint_belief_distribution = data %>%
+  dplyr::group_by(mu, sigma, freezing_prob, behavioral_belief) %>%
+  summarise(count = n()) %>%
+  dplyr::group_by(mu, sigma, freezing_prob) %>%
+  mutate(count = count / sum(count))
+
+sum_payoff = 0
+for (i in 1:nrow(data)) {
+  decision_signal = data[[i, "behavioral_decision"]]
+  
+  joint_decision_distribution_filtered = joint_decision_distribution %>%
+    filter(behavioral_decision == decision_signal)
+  
+  distributions = pnorm(0, mu, sigma_choices)
+  
+  p_a = nrow(data %>% filter(behavioral_decision == decision_signal)) / nrow(data)
+  
+  sigmas = joint_decision_distribution_filtered$sigma
+  p_a_d = as.list(rep(0, length(sigma_choices)))
+  names(p_a_d) = as.character(sigma_choices)
+  p_a_d[as.character(sigmas)] = joint_decision_distribution_filtered$count  # p(a|d)
+  p_a_d = unname(unlist(p_a_d))
+  p_d_a = p_a_d * p_d / p_a  # p(a|d) * p(d) / p(a)
+  
+  calibrated_belief = sum(distributions * p_d_a)  # E_p_d_a(d)
+  calibrated_reporting_decision = decision_space[[which.max(
+    lapply(decision_space, function(a) {
+      decision_scoring_rule(a, calibrated_belief)
+    }))]]
+  data[[i, "calibrated_decision_payoff"]] = 
+    decision_scoring_rule(calibrated_reporting_decision, data[[i, "freezing_prob"]])
+  
+  
+  belief_signal = data[[i, "behavioral_belief"]]
+  
+  joint_belief_distribution_filtered = joint_belief_distribution %>%
+    filter(behavioral_belief == belief_signal)
+  
+  p_a = nrow(data %>% filter(behavioral_belief == belief_signal)) / nrow(data)
+  
+  sigmas = joint_belief_distribution_filtered$sigma
+  p_a_d = as.list(rep(0, length(sigma_choices)))
+  names(p_a_d) = as.character(sigma_choices)
+  p_a_d[as.character(sigmas)] = joint_belief_distribution_filtered$count  # p(a|d)
+  p_a_d = unname(unlist(p_a_d))
+  p_d_a = p_a_d * p_d / p_a  # p(a|d) * p(d) / p(a)
+  
+  calibrated_belief = sum(distributions * p_d_a)  # E_p_d_a(d)
+  calibrated_reporting_belief = belief_space[[which.max(lapply(belief_space, function(a) {
+    belief_scoring_rule(a, calibrated_belief)
+  }))]]
+  data[[i, "calibrated_belief_payoff"]] = 
+    belief_scoring_rule(calibrated_reporting_belief, data[[i, "freezing_prob"]])
+}
+calibrated_payoff = data %>%
+  dplyr::group_by(vis) %>%
+  summarise(calibrated_decision_payoff = mean(calibrated_decision_payoff),
+            calibrated_belief_payoff = mean(calibrated_belief_payoff))
+calibrated_payoff
+@
+
+Now we get the calibrated behavioral scores. The calibrated scores of all visualization types are between rational baseline and rational benchmark.
+
+\end{document}
