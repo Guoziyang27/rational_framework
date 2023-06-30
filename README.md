@@ -6,6 +6,9 @@ This repository contains supplemental materials for the manuscript, The Rational
 
 Contents include data generating processing, analysis script, and the code used to generate the figures and statistics presented in the paper for one toy example and two demonstrations with two visualization experiments. Some of the generated files such as intermediate data sets and model fit objects are intentionally left out of the repo due to file size (model fit objects can be accessed on [Google drive](https://drive.google.com/file/d/1a6LIKQurkeWNNhH7UjuJkQ6n66lbKghw/view?usp=sharing)). 
 
+guideline/ - *A guideline for applying the rational agent framework to visualization experiments*
+ - guideline.Rnw: Pseudo code for applying general cases and R code for the hypothetical weather forecast experiment.
+
 forecast_example/ - *Materials for the weather forecast example*
  - example.Rmd: Code containing data-generating model, stimuli generation, and pre-experiment analysis for the hypothetical weather forecast experiment.
 
