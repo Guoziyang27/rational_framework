@@ -12,7 +12,7 @@
 \DeclareMathOperator*{\argmin}{arg\,min}
 \input{notation}
 
-\title{Guideline for rational agent framework}
+\title{Guided Walkthrough for rational agent framework}
 
 \begin{document}
 
@@ -36,26 +36,43 @@ This document walks through how to apply the rational agent framework to your vi
 Before we get started to applying the framework to a visualization experiment, we first need to identify the decision-making problem that forms the task in the experiment. Identify the decision problem involves identifying:
 
 \begin{itemize}
-    \item \textbf{states} (the description of reality we want help users understand with visualization, e.g. whether the temperature is above or below freezing in our weather forecast example).
-    \item \textbf{data generating model} (the process that generates the stimuli, i.e. the joint distribution between the state and the visualization. In the weather forecast example, the visualization is the distribution where the temperature is drawn, and the state is freezing / not freezing).
-    \item an \textbf{action space} (the report space that the experiment requires users to use, e.g. whether or not to salt the parking lot).
-    \item \textbf{signals} (the visualizations you show to users for helping them make decisions).
-    \item a \textbf{scoring rule} (the quality score or payoff that the experiment assigns to participants depending on their action and the state in reality, e.g. how many points you lose if you salt when it doesn't freeze or don't salt but it freezes).
+    \item \textbf{states} the description of reality we want help users understand with visualization, e.g. whether the temperature is above or below freezing in our weather forecast example.
+    \item \textbf{data generating model} the process that generates the stimuli, i.e. the joint distribution between the state and the visualization. In the weather forecast example, the visualization is the distribution where the temperature is drawn, and the state is freezing / not freezing.
+    \item an \textbf{action space}  the report space that the experiment requires users to use, e.g. whether or not to salt the parking lot.
+    \item \textbf{signals}  - the visualizations you show to users for helping them make decisions.
+    \item a \textbf{payoff} or \textbf{scoring rule} 
+    \begin{itemize}
+    \item payoff: $\actionspace\times\statespace\to \mathbb{R}$, a function mapping action and the state to real-valued payoff. e.g. how many points you lose if you salt when it doesn't freeze or don't salt but it freezes.
+    \item proper score: $\distover{\statespace}\times\statespace\to \mathbb{R}$ a function mapping probabily distribution over state and the state to real-valued payoff. The proper score applies the optimal action given the belief (the probability distribution), and is a proper measure of the quality of decision.
+%    the payoff evaluates the quality score or payoff that the experiment assigns to participants depending on their action and the state in reality,  For each payoff function, we can construct a proper scoring rule to evaluate the 
+    \end{itemize}
+    
+    There is a one-to-one mapping between payoff and a proper score. We can always construct a proper score from payoff. 
 \end{itemize}
 
-For the purpose of these guidelines, we will assume an experiment that is a slight variation on the weather forecast example in the paper, where we are asking users to report two actions. The first is the binary decision on whether to salt the parking lot and the second is their belief about the possibility of freezing in discrete levels after view a visualization about daily lowest temperature. The decision-making problem can be formalized as:
+For the purpose of these guidelines, we will assume an experiment that is a slight variation on the weather forecast example in the paper, where we are asking users to report two actions: 
+\begin{itemize}
+\item binary decision: salt the parking lot / not salt
+\item belief about the possibility of freezing.
+\end{itemize}
+%The first is the binary decision on whether to salt the parking lot and the second is their belief about the possibility of freezing in discrete levels after view a visualization about daily lowest temperature. 
+The decision-making problem of salting / not salting can be formalized as:
 
 \begin{itemize}
     \item states: $\theta \in \Theta = \{0=\text{not freezing}, 1=\text{freezing}\}$.
-    \item data generating models: daily low temperature $t \sim N(\mu, \sigma^2)$; $\Pr[\theta = 1] = \Pr[t \leq 0]$; $\mu = 5$ fixed and $\sigma$ uniformly from $\{2, 3, 4, 5\}$.
-    \item action space: $a \in A = \{0 = \text{not salt}, 1 = \text{salt}\}$; $b \in B = \{0, 0.02, 0.04, 0.06, ..., 0.96, 0.98, 1\}$, reporting the belief of freezing in discrete levels.
+    \item Assume daily low temperature $t \sim N(\mu, \sigma^2)$; $\Pr[\theta = 1] = \Pr[t \leq 0]$; $\mu = 5$ fixed and $\sigma$ uniformly from $\{2, 3, 4, 5\}$. The data generating models for different visualization strategies:
+    \begin{itemize}
+    \item mean: the mean display is not more informative than prior, just knowing $\mu=5$. 
+    \item CI, gradient, HOPs: seeing the visualization is the same as seeing the distribution of daily low temperature, or equivalently knowing the standard deviation $\sigma$ of temperature. 
+    \end{itemize}
+    \item action space: $a \in A = \{0 = \text{not salt}, 1 = \text{salt}\}$%; $b \in B = \{0, 0.02, 0.04, 0.06, ..., 0.96, 0.98, 1\}$, reporting the belief of freezing in discrete levels.
     \item signals: $v \in V$ showing daily low temperature $t$.
-    \item scoring rule: $S_{decision}(a, \theta)$ for reporting the decision of salting, see equation 3 in the paper; $S_{belief}(b, \theta) = S_{decision}(\argmax_{a}{S_{decision}(a, b)}, \theta)$ for reporting the belief of freezing.
+    \item scoring rule: payoff $S_{decision}(a, \theta)$ for reporting the decision of salting, see equation 2 in the paper; $S_{belief}(b, \theta) = S_{decision}(\argmax_{a}{S_{decision}(a, b)}, \theta)$ for reporting the belief of freezing.
 \end{itemize}
 
-The following R code defines the scoring rule $S_{decision}$ and $S_{belief}$. For $S_{decision}$, we follow the payoff function in equation 3 in the paper. For $S_{belief}$, we score belief by the optimal decision on belief, i.e. assuming the agent makes the decision rationally on their belief, what would be their score?
+The following R code defines the scoring rule $S_{decision}$ and $S_{belief}$. $S_{decision}$ scores the binary action that agents take, where we follow the payoff function in equation 2 in the paper. 
 
-<<scoring_rule>>=
+<<decision_scoring_rule>>=
 belief_space = seq(0, 1, 0.02)
 decision_space = c(0, 1)
 
@@ -63,6 +80,11 @@ decision_scoring_rule = function(decision, state) {
   # See equation 3 in the paper
   -100 * (1 - decision) * state - 10 * decision * (1 - state)
 }
+@
+
+We construct a proper score $S_{belief}$ scoring the belief. $S_{belief}$ is constructed from the payoff  $S_{decision}$ by applying the optimal binary decision to the belief, i.e.\ assuming the agent makes the decision rationally on their belief.
+
+<<belief_scoring_rule>>=
 belief_scoring_rule = function(belief, state) {
   # apply the optimal decision based on the belief
   decision = decision_space[apply(matrix(unlist(lapply(decision_space, function(d) {
