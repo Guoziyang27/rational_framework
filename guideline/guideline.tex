@@ -14,20 +14,23 @@
 
 \title{Guided Walkthrough for rational agent framework}
 
+\usepackage{Sweave}
 \begin{document}
 
 \maketitle
 
 \RestyleAlgo{ruled}
 
-\SweaveOpts{concordance=TRUE}
+\input{guideline-concordance}
 
-<<setup, include=FALSE>>=
-library(dplyr)
-library(tidyr)
-library(modelr)
-knitr::opts_chunk$set(echo = TRUE)
-@
+\begin{Schunk}
+\begin{Sinput}
+> library(dplyr)
+> library(tidyr)
+> library(modelr)
+> knitr::opts_chunk$set(echo = TRUE)
+\end{Sinput}
+\end{Schunk}
 
 This document walks through how to apply the rational agent framework to your visualization experiment. We provide general guidance and walk through the forecast visualization example in the paper in more detail.
 
@@ -72,62 +75,76 @@ The decision-making problem of salting / not salting can be formalized as:
 
 The following R code defines the scoring rule $S_{decision}$ and $S_{belief}$. $S_{decision}$ scores the binary action that agents take, where we follow the payoff function in equation 2 in the paper. 
 
-<<decision_scoring_rule>>=
-belief_space = seq(0, 1, 0.02)
-decision_space = c(0, 1)
-
-decision_scoring_rule = function(decision, state) {
-  # See equation 3 in the paper
-  -100 * (1 - decision) * state - 10 * decision * (1 - state)
-}
-@
+\begin{Schunk}
+\begin{Sinput}
+> belief_space = seq(0, 1, 0.02)
+> decision_space = c(0, 1)
+> decision_scoring_rule = function(decision, state) {
++   # See equation 3 in the paper
++   -100 * (1 - decision) * state - 10 * decision * (1 - state)
++ }
+\end{Sinput}
+\end{Schunk}
 
 We construct a proper score $S_{belief}$ scoring the belief. $S_{belief}$ is constructed from the payoff  $S_{decision}$ by applying the optimal binary decision to the belief, i.e.\ assuming the agent makes the decision rationally on their belief.
 
-<<belief_scoring_rule>>=
-belief_scoring_rule = function(belief, state) {
-  # apply the optimal decision based on the belief
-  decision = decision_space[apply(matrix(unlist(lapply(decision_space, function(d) {
-      decision_scoring_rule(d, belief)
-  })), ncol = length(belief)), 2, which.max)]
-  
-  decision_scoring_rule(decision, state)
-}
-@
+\begin{Schunk}
+\begin{Sinput}
+> belief_scoring_rule = function(belief, state) {
++   # apply the optimal decision based on the belief
++   decision = decision_space[apply(matrix(unlist(lapply(decision_space, function(d) {
++       decision_scoring_rule(d, belief)
++   })), ncol = length(belief)), 2, which.max)]
++   
++   decision_scoring_rule(decision, state)
++ }
+\end{Sinput}
+\end{Schunk}
 
 \section{For the purposes of this walkthrough only: Simulate behavioral data using quantal response equilibrium}
 
 For the purposes of our walkthrough of the rational agent approach, we generate mock experimental data for the weather forecast example described above using quantal response equilibrium\footnote{https://www.sciencedirect.com/science/article/pii/S0899825685710238} (a type of behavioral model that assumes the probability of any particular action being chosen is positively related to the payoff from that action, i.e. very bad actions are unlikely), where we keep the distribution of sigma, i.e. the distribution of data generating models, as uniform distribution.
 
-<<generate data>>=
-p_d = c(0.25, 0.25, 0.25, 0.25)
-# p(d) the prior knowledge of the distribution of data generating models
-
-sigma_choices = c(2, 3, 4, 5)
-mu = 5
-
-data = data.frame(
-  mu = mu, 
-  sigma = sigma_choices,
-  vis = c("mean", "mean+interval", "gradient", "HOPs")
-) %>% 
-  data_grid(mu, sigma, vis) %>% 
-  rowwise() %>%
-  mutate(
-    freezing_prob = pnorm(0, mu, sigma),
-    behavioral_decision = list(sample(decision_space, 100, 
-      replace = TRUE, 
-      # quantal response equilibrium
-      prob = exp(0.2 * decision_scoring_rule(decision_space, freezing_prob)))),
-    behavioral_belief = list(sample(belief_space, 100, 
-      replace = TRUE, 
-      # quantal response equilibrium
-      prob = exp(belief_scoring_rule(belief_space, freezing_prob))))
-  ) %>%
-  unnest(cols = c(behavioral_decision, behavioral_belief))
-
-head(data)
-@
+\begin{Schunk}
+\begin{Sinput}
+> p_d = c(0.25, 0.25, 0.25, 0.25)
+> # p(d) the prior knowledge of the distribution of data generating models
+> 
+> sigma_choices = c(2, 3, 4, 5)
+> mu = 5
+> data = data.frame(
++   mu = mu, 
++   sigma = sigma_choices,
++   vis = c("mean", "mean+interval", "gradient", "HOPs")
++ ) %>% 
++   data_grid(mu, sigma, vis) %>% 
++   rowwise() %>%
++   mutate(
++     freezing_prob = pnorm(0, mu, sigma),
++     behavioral_decision = list(sample(decision_space, 100, 
++       replace = TRUE, 
++       # quantal response equilibrium
++       prob = exp(0.2 * decision_scoring_rule(decision_space, freezing_prob)))),
++     behavioral_belief = list(sample(belief_space, 100, 
++       replace = TRUE, 
++       # quantal response equilibrium
++       prob = exp(belief_scoring_rule(belief_space, freezing_prob))))
++   ) %>%
++   unnest(cols = c(behavioral_decision, behavioral_belief))
+> head(data)
+\end{Sinput}
+\begin{Soutput}
+# A tibble: 6 × 6
+     mu sigma vis      freezing_prob behavioral_decision behavioral_belief
+  <dbl> <dbl> <chr>            <dbl>               <dbl>             <dbl>
+1     5     2 gradient       0.00621                   0              0.18
+2     5     2 gradient       0.00621                   0              0.46
+3     5     2 gradient       0.00621                   0              0.34
+4     5     2 gradient       0.00621                   0              0.16
+5     5     2 gradient       0.00621                   0              0.28
+6     5     2 gradient       0.00621                   0              0.04
+\end{Soutput}
+\end{Schunk}
 
 \section{Pre-experiment analysis}
 
@@ -216,36 +233,53 @@ $baseline \gets payoff / \text{\# of row in }D$\;\Comment{rational baseline is t
 
 \paragraph{R in weather forecast example}
 
-<<baseline>>=
-prior_belief = Reduce("+", 
-  sapply(sigma_choices, function(m) {pnorm(0, mu, m)})) / length(sigma_choices)
-
-decision_payoffs = lapply(decision_space, function(a) {
-  decision_scoring_rule(a, prior_belief)
-})
-prior_reporting_decision = decision_space[[which.max(decision_payoffs)]]
-prior_reporting_decision
-
-belief_payoffs = lapply(belief_space, function(b) {
-  belief_scoring_rule(b, prior_belief)
-})
-prior_reporting_belief = belief_space[[which.max(belief_payoffs)]]
-prior_reporting_belief
-
-# simulate the action of rational agent with only prior knowledge on all experiments
-for (i in 1:nrow(data)) {
-  data[i, "prior_decision_payoff"] = 
-    decision_scoring_rule(prior_reporting_decision, data[i, "freezing_prob"])
-  data[i, "prior_belief_payoff"] = 
-    belief_scoring_rule(prior_reporting_belief, data[i, "freezing_prob"])
-}
-
-prior_payoff = data %>%
-  dplyr::group_by(vis) %>%
-  summarise(prior_decision_payoff = mean(prior_decision_payoff),
-            prior_belief_payoff = mean(prior_belief_payoff))
-prior_payoff
-@
+\begin{Schunk}
+\begin{Sinput}
+> prior_belief = Reduce("+", 
++   sapply(sigma_choices, function(m) {pnorm(0, mu, m)})) / length(sigma_choices)
+> decision_payoffs = lapply(decision_space, function(a) {
++   decision_scoring_rule(a, prior_belief)
++ })
+> prior_reporting_decision = decision_space[[which.max(decision_payoffs)]]
+> prior_reporting_decision
+\end{Sinput}
+\begin{Soutput}
+[1] 0
+\end{Soutput}
+\begin{Sinput}
+> belief_payoffs = lapply(belief_space, function(b) {
++   belief_scoring_rule(b, prior_belief)
++ })
+> prior_reporting_belief = belief_space[[which.max(belief_payoffs)]]
+> prior_reporting_belief
+\end{Sinput}
+\begin{Soutput}
+[1] 0
+\end{Soutput}
+\begin{Sinput}
+> # simulate the action of rational agent with only prior knowledge on all experiments
+> for (i in 1:nrow(data)) {
++   data[i, "prior_decision_payoff"] = 
++     decision_scoring_rule(prior_reporting_decision, data[i, "freezing_prob"])
++   data[i, "prior_belief_payoff"] = 
++     belief_scoring_rule(prior_reporting_belief, data[i, "freezing_prob"])
++ }
+> prior_payoff = data %>%
++   dplyr::group_by(vis) %>%
++   summarise(prior_decision_payoff = mean(prior_decision_payoff),
++             prior_belief_payoff = mean(prior_belief_payoff))
+> prior_payoff
+\end{Sinput}
+\begin{Soutput}
+# A tibble: 4 × 3
+  vis           prior_decision_payoff prior_belief_payoff
+  <chr>                         <dbl>               <dbl>
+1 gradient                      -7.96               -7.96
+2 HOPs                          -7.96               -7.96
+3 mean                          -7.96               -7.96
+4 mean+interval                 -7.96               -7.96
+\end{Soutput}
+\end{Schunk}
 
 The result says the optimal expected payoff of the rational agent with only prior knowledge is $-7.96$ for both reporting decision and belief, and the optimal decision and belief are both $0$, meaning that the rational agent with only prior belief would always report $0$ and the rational baseline is $-7.96$.
 
@@ -284,36 +318,47 @@ In the weather forecast example, the visualizations provide perfect information 
 
 so $p(d_1|vis) = p(vis|d) \cdot p(d) / p(vis) \approx 1$ when the visualization is fixed.
 
-<<benchmark>>=
-for (i in 1:nrow(data)) {
-  # rational agent can infer the exact data generating model based on signal
-  if (data[[i, "vis"]] == "mean") {
-    posterior_belief = prior_belief
-  } else {
-    posterior_belief = data[[i, "freezing_prob"]]
-  }
-  posterior_reporting_decision = decision_space[[
-    which.max(lapply(decision_space, function(a) {
-      decision_scoring_rule(a, posterior_belief)
-    }))
-  ]]
-  posterior_reporting_belief = belief_space[[
-    which.max(lapply(belief_space, function(b) {
-      belief_scoring_rule(b, posterior_belief)
-    }))
-  ]]
-  data[[i, "posterior_decision_payoff"]] = 
-    decision_scoring_rule(posterior_reporting_decision, data[[i, "freezing_prob"]])
-  
-  data[[i, "posterior_belief_payoff"]] = 
-    belief_scoring_rule(posterior_reporting_belief, data[[i, "freezing_prob"]])
-}
-posterior_payoff = data %>%
-  dplyr::group_by(vis) %>%
-  summarise(posterior_decision_payoff = mean(posterior_decision_payoff),
-            posterior_belief_payoff = mean(posterior_belief_payoff))
-posterior_payoff
-@
+\begin{Schunk}
+\begin{Sinput}
+> for (i in 1:nrow(data)) {
++   # rational agent can infer the exact data generating model based on signal
++   if (data[[i, "vis"]] == "mean") {
++     posterior_belief = prior_belief
++   } else {
++     posterior_belief = data[[i, "freezing_prob"]]
++   }
++   posterior_reporting_decision = decision_space[[
++     which.max(lapply(decision_space, function(a) {
++       decision_scoring_rule(a, posterior_belief)
++     }))
++   ]]
++   posterior_reporting_belief = belief_space[[
++     which.max(lapply(belief_space, function(b) {
++       belief_scoring_rule(b, posterior_belief)
++     }))
++   ]]
++   data[[i, "posterior_decision_payoff"]] = 
++     decision_scoring_rule(posterior_reporting_decision, data[[i, "freezing_prob"]])
++   
++   data[[i, "posterior_belief_payoff"]] = 
++     belief_scoring_rule(posterior_reporting_belief, data[[i, "freezing_prob"]])
++ }
+> posterior_payoff = data %>%
++   dplyr::group_by(vis) %>%
++   summarise(posterior_decision_payoff = mean(posterior_decision_payoff),
++             posterior_belief_payoff = mean(posterior_belief_payoff))
+> posterior_payoff
+\end{Sinput}
+\begin{Soutput}
+# A tibble: 4 × 3
+  vis           posterior_decision_payoff posterior_belief_payoff
+  <chr>                             <dbl>                   <dbl>
+1 gradient                          -5.69                   -5.69
+2 HOPs                              -5.69                   -5.69
+3 mean                              -7.96                   -7.96
+4 mean+interval                     -5.69                   -5.69
+\end{Soutput}
+\end{Schunk}
 
 When seeing "mean" visualization, the rational agent didn't get the information about sigma, so they can't update the belief on data generating models, and the rational benchmark for both reporting action and belief turns out to be $-7.96$, which is the same as rational baseline. For the other visualization, the rational benchmark for both reporting action and belief is $-5.69$.
 
@@ -351,20 +396,30 @@ $behavioral \gets payoff / \text{\# of row in }D$\;
 
 \paragraph{R in weather forecast example}
 
-<<behavioral>>=
-for (i in 1:nrow(data)) {
-  data[i, "behavioral_decision_payoff"] = 
-    decision_scoring_rule(data[i, "behavioral_decision"], data[i, "freezing_prob"])
-  data[i, "behavioral_belief_payoff"] = 
-    belief_scoring_rule(data[i, "behavioral_belief"], data[i, "freezing_prob"])
-}
-
-behavioral_payoff = data %>%
-  dplyr::group_by(vis) %>%
-  summarise(behavioral_decision_payoff = mean(behavioral_decision_payoff),
-            behavioral_belief_payoff = mean(behavioral_belief_payoff))
-behavioral_payoff
-@
+\begin{Schunk}
+\begin{Sinput}
+> for (i in 1:nrow(data)) {
++   data[i, "behavioral_decision_payoff"] = 
++     decision_scoring_rule(data[i, "behavioral_decision"], data[i, "freezing_prob"])
++   data[i, "behavioral_belief_payoff"] = 
++     belief_scoring_rule(data[i, "behavioral_belief"], data[i, "freezing_prob"])
++ }
+> behavioral_payoff = data %>%
++   dplyr::group_by(vis) %>%
++   summarise(behavioral_decision_payoff = mean(behavioral_decision_payoff),
++             behavioral_belief_payoff = mean(behavioral_belief_payoff))
+> behavioral_payoff
+\end{Sinput}
+\begin{Soutput}
+# A tibble: 4 × 3
+  vis           behavioral_decision_payoff behavioral_belief_payoff
+  <chr>                              <dbl>                    <dbl>
+1 gradient                           -6.77                    -8.62
+2 HOPs                               -6.73                    -8.56
+3 mean                               -6.75                    -8.63
+4 mean+interval                      -6.69                    -8.56
+\end{Soutput}
+\end{Schunk}
 
 Since the behavioral agent's actions are generated randomly but not from real persons, some of the payoffs are below rational baseline, e.g. the behavioral payoff when reporting belief. Then we will introduce the calibrated behavioral score, which can represent the behavioral in the baseline-and-benchmark scale.
 
@@ -397,74 +452,83 @@ $benchmark \gets payoff / \text{\# of row in }D$\;
 
 \paragraph{R in weather forecast example}
 
-<<calibrated>>=
-# the joint distribution of actions and data generating models
-joint_decision_distribution = data %>%
-  dplyr::group_by(mu, sigma, freezing_prob, behavioral_decision) %>%
-  summarise(count = n()) %>%
-  dplyr::group_by(mu, sigma, freezing_prob) %>%
-  mutate(count = count / sum(count))
-
-joint_belief_distribution = data %>%
-  dplyr::group_by(mu, sigma, freezing_prob, behavioral_belief) %>%
-  summarise(count = n()) %>%
-  dplyr::group_by(mu, sigma, freezing_prob) %>%
-  mutate(count = count / sum(count))
-
-sum_payoff = 0
-for (i in 1:nrow(data)) {
-  decision_signal = data[[i, "behavioral_decision"]]
-  
-  joint_decision_distribution_filtered = joint_decision_distribution %>%
-    filter(behavioral_decision == decision_signal)
-  
-  distributions = pnorm(0, mu, sigma_choices)
-  
-  p_a = nrow(data %>% filter(behavioral_decision == decision_signal)) / nrow(data)
-  
-  sigmas = joint_decision_distribution_filtered$sigma
-  p_a_d = as.list(rep(0, length(sigma_choices)))
-  names(p_a_d) = as.character(sigma_choices)
-  p_a_d[as.character(sigmas)] = joint_decision_distribution_filtered$count  # p(a|d)
-  p_a_d = unname(unlist(p_a_d))
-  p_d_a = p_a_d * p_d / p_a  # p(a|d) * p(d) / p(a)
-  
-  calibrated_belief = sum(distributions * p_d_a)  # E_p_d_a(d)
-  calibrated_reporting_decision = decision_space[[which.max(
-    lapply(decision_space, function(a) {
-      decision_scoring_rule(a, calibrated_belief)
-    }))]]
-  data[[i, "calibrated_decision_payoff"]] = 
-    decision_scoring_rule(calibrated_reporting_decision, data[[i, "freezing_prob"]])
-  
-  
-  belief_signal = data[[i, "behavioral_belief"]]
-  
-  joint_belief_distribution_filtered = joint_belief_distribution %>%
-    filter(behavioral_belief == belief_signal)
-  
-  p_a = nrow(data %>% filter(behavioral_belief == belief_signal)) / nrow(data)
-  
-  sigmas = joint_belief_distribution_filtered$sigma
-  p_a_d = as.list(rep(0, length(sigma_choices)))
-  names(p_a_d) = as.character(sigma_choices)
-  p_a_d[as.character(sigmas)] = joint_belief_distribution_filtered$count  # p(a|d)
-  p_a_d = unname(unlist(p_a_d))
-  p_d_a = p_a_d * p_d / p_a  # p(a|d) * p(d) / p(a)
-  
-  calibrated_belief = sum(distributions * p_d_a)  # E_p_d_a(d)
-  calibrated_reporting_belief = belief_space[[which.max(lapply(belief_space, function(a) {
-    belief_scoring_rule(a, calibrated_belief)
-  }))]]
-  data[[i, "calibrated_belief_payoff"]] = 
-    belief_scoring_rule(calibrated_reporting_belief, data[[i, "freezing_prob"]])
-}
-calibrated_payoff = data %>%
-  dplyr::group_by(vis) %>%
-  summarise(calibrated_decision_payoff = mean(calibrated_decision_payoff),
-            calibrated_belief_payoff = mean(calibrated_belief_payoff))
-calibrated_payoff
-@
+\begin{Schunk}
+\begin{Sinput}
+> # the joint distribution of actions and data generating models
+> joint_decision_distribution = data %>%
++   dplyr::group_by(mu, sigma, freezing_prob, behavioral_decision) %>%
++   summarise(count = n()) %>%
++   dplyr::group_by(mu, sigma, freezing_prob) %>%
++   mutate(count = count / sum(count))
+> joint_belief_distribution = data %>%
++   dplyr::group_by(mu, sigma, freezing_prob, behavioral_belief) %>%
++   summarise(count = n()) %>%
++   dplyr::group_by(mu, sigma, freezing_prob) %>%
++   mutate(count = count / sum(count))
+> sum_payoff = 0
+> for (i in 1:nrow(data)) {
++   decision_signal = data[[i, "behavioral_decision"]]
++   
++   joint_decision_distribution_filtered = joint_decision_distribution %>%
++     filter(behavioral_decision == decision_signal)
++   
++   distributions = pnorm(0, mu, sigma_choices)
++   
++   p_a = nrow(data %>% filter(behavioral_decision == decision_signal)) / nrow(data)
++   
++   sigmas = joint_decision_distribution_filtered$sigma
++   p_a_d = as.list(rep(0, length(sigma_choices)))
++   names(p_a_d) = as.character(sigma_choices)
++   p_a_d[as.character(sigmas)] = joint_decision_distribution_filtered$count  # p(a|d)
++   p_a_d = unname(unlist(p_a_d))
++   p_d_a = p_a_d * p_d / p_a  # p(a|d) * p(d) / p(a)
++   
++   calibrated_belief = sum(distributions * p_d_a)  # E_p_d_a(d)
++   calibrated_reporting_decision = decision_space[[which.max(
++     lapply(decision_space, function(a) {
++       decision_scoring_rule(a, calibrated_belief)
++     }))]]
++   data[[i, "calibrated_decision_payoff"]] = 
++     decision_scoring_rule(calibrated_reporting_decision, data[[i, "freezing_prob"]])
++   
++   
++   belief_signal = data[[i, "behavioral_belief"]]
++   
++   joint_belief_distribution_filtered = joint_belief_distribution %>%
++     filter(behavioral_belief == belief_signal)
++   
++   p_a = nrow(data %>% filter(behavioral_belief == belief_signal)) / nrow(data)
++   
++   sigmas = joint_belief_distribution_filtered$sigma
++   p_a_d = as.list(rep(0, length(sigma_choices)))
++   names(p_a_d) = as.character(sigma_choices)
++   p_a_d[as.character(sigmas)] = joint_belief_distribution_filtered$count  # p(a|d)
++   p_a_d = unname(unlist(p_a_d))
++   p_d_a = p_a_d * p_d / p_a  # p(a|d) * p(d) / p(a)
++   
++   calibrated_belief = sum(distributions * p_d_a)  # E_p_d_a(d)
++   calibrated_reporting_belief = belief_space[[which.max(lapply(belief_space, function(a) {
++     belief_scoring_rule(a, calibrated_belief)
++   }))]]
++   data[[i, "calibrated_belief_payoff"]] = 
++     belief_scoring_rule(calibrated_reporting_belief, data[[i, "freezing_prob"]])
++ }
+> calibrated_payoff = data %>%
++   dplyr::group_by(vis) %>%
++   summarise(calibrated_decision_payoff = mean(calibrated_decision_payoff),
++             calibrated_belief_payoff = mean(calibrated_belief_payoff))
+> calibrated_payoff
+\end{Sinput}
+\begin{Soutput}
+# A tibble: 4 × 3
+  vis           calibrated_decision_payoff calibrated_belief_payoff
+  <chr>                              <dbl>                    <dbl>
+1 gradient                           -6.77                    -5.77
+2 HOPs                               -6.73                    -5.78
+3 mean                               -6.75                    -5.77
+4 mean+interval                      -6.69                    -5.76
+\end{Soutput}
+\end{Schunk}
 
 Now we get the calibrated behavioral scores. The calibrated scores of all visualization types are between rational baseline and rational benchmark.
 
