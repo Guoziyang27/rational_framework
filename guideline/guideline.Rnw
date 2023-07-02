@@ -28,46 +28,46 @@ This document walks through how to apply the rational agent framework to your vi
 
 \subsection{Identifying the decision problem}
 
-Before we get started to applying the framework to a visualization experiment, we first need to identify the decision-making problem that forms the task in the experiment. Identify the decision problem involves identifying:
+Before we get started to applying the framework to a visualization experiment, we first need to identify the decision-making problem that forms the task in the experiment. Identifying the decision problem involves identifying:
 
 \begin{itemize}
-    \item \textbf{states} the description of reality we want help users understand with visualization, e.g. whether the temperature is above or below freezing in our weather forecast example.
-    \item \textbf{data generating model} the process that generates the data shown in visualizations, from which the distribution of states can be inferred. In the weather forecast example, the data generating model is drawn uniformly from $\{Normal(5, 2), Normal(5, 3), Normal(5, 4), Normal(5, 5)\}$.
-    \item an \textbf{action space}  the report space that the experiment requires users to use, e.g. whether or not to salt the parking lot.
-    \item \textbf{signals} the visualizations you show to users for helping them make decisions.
-    \item a \textbf{payoff} or \textbf{scoring rule} the payoff function used in experiment to incentivize/score users' behaviors. In general, you can think the scoring rule in following two forms.
+    \item \textbf{states}: the description of reality we want help users understand with visualization, e.g. whether the temperature is above or below freezing in our weather forecast example.
+    \item \textbf{data generating model}: the process that generates the data shown in visualizations, from which the distribution of states can be inferred. In the weather forecast example, the data generating model is drawn uniformly from $\{Normal(5, 2), Normal(5, 3), Normal(5, 4), Normal(5, 5)\}$.
+    \item an \textbf{action space}: the report space that the experiment requires users to use, e.g. whether or not to salt the parking lot.
+    \item \textbf{signals}: the visualizations you show to users to aid their decisions.
+    \item a \textbf{payoff} or \textbf{scoring rule}: the payoff function used in experiment to incentivize/score users' behaviors. In general, you can think of the scoring rule in the following two forms.
     \begin{itemize}
-    \item payoff: $\actionspace\times\statespace\to \mathbb{R}$, a function mapping action and the state to real-valued payoff. e.g. how many points you lose if you salt when it doesn't freeze or don't salt but it freezes.
-    \item proper score: $\distover{\statespace}\times\statespace\to \mathbb{R}$ a function mapping probability distribution over state and the state to real-valued payoff. The proper score applies the optimal action given the belief (the probability distribution), and is a proper measure of the quality of decision.
+    \item payoff: $\actionspace\times\statespace\to \mathbb{R}$, a function mapping an action and the state to a real-valued payoff. e.g. how many points you lose if you salt when it doesn't freeze or don't salt but it freezes.
+    \item proper score: $\distover{\statespace}\times\statespace\to \mathbb{R}$ a function mapping the probability distribution over state and the state to a real-valued payoff. The proper score applies the optimal action given the belief (a probability distribution), and is a proper measure of the quality of a decision. See Gneiting and Raftery, "Strictly Proper Scoring Rules, Prediction, and Estimation" (2007) for more information.
 %    the payoff evaluates the quality score or payoff that the experiment assigns to participants depending on their action and the state in reality,  For each payoff function, we can construct a proper scoring rule to evaluate the 
     \end{itemize}
     
-    There is a one-to-one mapping between payoff and a proper score. We can always construct a proper score from payoff. 
+    There is a one-to-one mapping between a payoff and a proper score. We can always construct a proper score from a payoff. 
 \end{itemize}
 
 Note that the use of scoring rules may have two purposes:
 \begin{itemize}
 \item to incentivize behavioral agents in an experiment, and
-\item to evaluate the effect of seeing a visualization.
+\item to evaluate the effect of seeing a visualization in an experiment.
 \end{itemize}
 
-An experimenter may not use the same scoring rule for incentives and for evaluation. For example, the experimenter may use flat payment to reward behavioral agents. Hence, the pre-experimental analysis has two purposes with different use of scoring rules:
+An experimenter may not use the same scoring rule for incentives and for evaluation. For example, the experimenter may use a flat payment to reward behavioral agents. Hence, the pre-experimental analysis has two purposes with different use of scoring rules:
 \begin{itemize}
-\item if it is believed that behavioral agents are incentivized by monetary rewards, the experimenter should pre-experimentally calculate the value of information in real money, and evaluate the incentive. The experimenter might prefer to choose a scoring rule with higher incentives compared to a base payment.
-\item The experimenter can also use a proper scoring rule solely for the purpose of evaluation. The rational baseline, benchmark and value of information can be calculated pre-experimentally to compare with behavioral performance. 
+\item if it is believed that behavioral agents are incentivized by monetary rewards, the experimenter should pre-experimentally calculate the value of information in real money, and evaluate the incentive. The experimenter might prefer to choose a scoring rule with higher incentives compared to a base payment. [JH - not sure what previous sentence means]
+\item The experimenter can also use a proper scoring rule solely for the purpose of evaluation. The rational baseline, benchmark and value of information can be calculated pre-experimentally to compare with behavioral performance.  [JH - I think we should try to say why one would do an analysis with a proper scoring rule? is it bc you assume people will be well incentivized (even if they aren't paid) and you want to ensure you have a big enough gap between baseline and benchmark? Could add a sentence like 'For example, if an experiment uses a flat rule, or relies on volunteers, under an assumption that the participants will be naturally incentivized, they can use a proper scoring rule to analyze the design.  ]
 \end{itemize}
 
-In either cases, the scoring rule is taken as input to our framework. The experimenter can select any payoff function, and construct a proper score. 
+In either case, the scoring rule is taken as input to our framework. The experimenter can select any payoff function, and construct a proper score, depending on the assumptions they make about the participants. 
 
 \subsection{Pre-experiment analysis}
 
-In this section, we will show how to calculate the three pre-experiment quantities (rational baseline, rational benchmark, and value of information) that the rational agent framework offers. The rational agent's prior belief is before seeing the visualization, the unconditional probability of each state is drawn according to the data generating model. Given a visualization signal, the rational agent will update their belief on data generating models based on the joint distribution between visualizations and data generating models. We provide the pseudo code in Alg. \ref{alg:baseline} and Alg. \ref{alg:benchmark} to calculate the pre-experiment quantities. 
+In this section, we will show how to calculate the three pre-experiment quantities (rational baseline, rational benchmark, and value of information) that the rational agent framework offers. The rational agent's prior belief is known before seeing the visualization, and represents the unconditional probability that each state is drawn according to the data generating model. Given a visualization signal, the rational agent will update their beliefs about the state based on the joint distribution between visualizations and states. We provide the pseudocode in Alg. \ref{alg:baseline} and Alg. \ref{alg:benchmark} to calculate the pre-experiment quantities. 
 
-For the rational baseline, you should assume that the rational agent has no access to the any signal, i.e. with only the prior belief. Therefore, when simulating the agent on real experiment data (Alg. \ref{alg:baseline}), the agent won't care about the visualization or any provided information but always take the same action based on the prior belief.
+For the rational baseline, we assume that the rational agent has no access to the signal, i.e. responds based on only the prior belief. Therefore, when simulating this agent on real experiment data (Alg. \ref{alg:baseline}), the agent won't care about the visualization or any provided information but always take the same action based on the prior belief.
 
 \begin{algorithm}[!h]
 \caption{Rational baseline}\label{alg:baseline}
-\KwIn{the experimental data $D$ with each row representing one experimental trial, prior belief about data generating model $p(d)$, the action space $A$, and the scoring rule $S$}
+\KwIn{the experimental data $D$ with each row representing one experimental trial, prior beliefs about the state $p(d)$, the action space $A$, and the scoring rule $S$}
 \KwOut{the rational baseline $\rprior$}
 $belief \gets E_{d\sim p(d)}(d)$\;\Comment{the prior belief about states}
 $action \gets \argmax_{a \sim A}{E_{\theta \sim belief}(S(a, \theta))}$\;\Comment{the action made on prior belief}
@@ -76,10 +76,11 @@ $payoff \gets 0$\;
   $dist \gets \text{actual data generating model used in } row$\;
   $payoff \gets payoff + E_{\theta \sim dist}(S(action, \theta))$\;
 }
-$\rprior \gets payoff / \text{\# of row in }D$\;\Comment{rational baseline is the rational agent's expected payoff in the experiment when only having prior belief}
+[JH - I didn't change some references to data generating model above (and below) but we need to]
+$\rprior \gets payoff / \text{\# of row in }D$\;\Comment{rational baseline is the rational agent's expected payoff in the experiment under only their prior belief}
 \end{algorithm}
 
-For rational benchmark, the rational agent has access to the visualization signal. After seeing the visualization signals, the rational agent will update the belief about states based on the joint distribution between visualizations and data generating models. For example, the visualization signals $v$ provides an information about the possibility that this visualization could occur in data generating models $d$ as $p(v|d)$ and the prior belief about the data generating model is $p(d)$. Then the posterior belief about the data generating models could be $p(d|v) = p(v|d) \cdot p(d) / p(v)$. See the detail algorithm in Alg. \ref{alg:benchmark}.
+For the rational benchmark, we assume the rational agent has access to the visualization (signal). After seeing the visualization (signals), the rational agent will update their belief about the state based on the joint distribution between visualizations and states. For example, the visualization signal $v$ provides information about the possibility that this visualization could occur in data generating models $d$ as $p(v|d)$ and the prior belief about the data generating model is $p(d)$. Then the posterior belief about the data generating models could be $p(d|v) = p(v|d) \cdot p(d) / p(v)$. See the detail algorithm in Alg. \ref{alg:benchmark}.
 
 \begin{algorithm}[!h]
 \caption{Rational benchmark}\label{alg:benchmark}
@@ -97,7 +98,7 @@ $payoff \gets 0$\;
 $\rscore \gets payoff / \text{\# of row in }D$\;
 \end{algorithm}
 
-Then you can get the value of information in rational agent framework as the difference between rational benchmark and baseline, i.e. the maximum improvement can be made when agent has the right prior knowledge and follows the Bayesian rule to update the belief.
+You can calculate the value of information in the rational agent framework as the difference between the rational benchmark and baseline, i.e. the maximum improvement that can be made when agent has the prior knowledge and follows Bayes rule to update their belief.
 
 \begin{equation*}
 \Delta = \rprior - \rscore 
@@ -105,7 +106,7 @@ Then you can get the value of information in rational agent framework as the dif
 
 \subsection{Post-experiment analysis}
 
-The rational agent framework also offers two post-experiment measures (behavioral score and calibrated behavioral score) to quantify behavioral performance. The behavioral score $\bscore$ is the payoff that the behavioral agents (i.e. real users) get in experiments, which is always below the rational benchmark $\rscore$ and can be either above or below the rational baseline $\rprior$. Importantly, if the behavioral score is below the rational baseline, then from the scores alone we cannot reject the hypothesis that the behavioral agent got no useful information from the visualization, because even with no information, the rational agent performs better. Therefore, we propose the calibrated behavioral score, where you can use the rational agent to calibrated the behavioral score into the interval between the rational baseline and the rational benchmark.
+The rational agent framework also offers two post-experiment measures (behavioral score and calibrated behavioral score) to quantify behavioral performance. The behavioral score $\bscore$ is the payoff that the behavioral agents (i.e. real users) get or are expected to get in the experiment, which is always below the rational benchmark $\rscore$ and can be either above or below the rational baseline $\rprior$. Importantly, if the behavioral score is below the rational baseline, then from the scores alone we cannot reject the hypothesis that the behavioral agent got no useful information from the visualization, because even with no information, the rational agent performs better. Therefore, we propose the calibrated behavioral score, where you can use the rational agent to calibrate the behavioral score to fall within the interval between the rational baseline and the rational benchmark, to understand how much information the behavioral agents didn't get.
 
 You can follow Alg. \ref{alg:behavioral} to estimate the payoff of behavioral agents' actions.
 
@@ -122,7 +123,7 @@ $payoff \gets 0$\;
 $behavioral \gets payoff / \text{\# of row in }D$\;
 \end{algorithm}
 
-For the calibrated behavioral score, you should simulate the rational agent like calculating the rational baseline and the rational benchmark, but the rational agent is not using the visualizations as signals but using the actions made by behavioral agents, which mean that when seeing a behavioral agent's action $a$, the rational agent will update the belief about states based on the joint distribution between behavioral actions and data generating models, i.e. $p(d|a) = p(a|d) \cdot p(d) / p(a)$ (Alg. \ref{alg:calibrated}).
+For the calibrated behavioral score, you simulate the rational agent as in calculating the rational baseline and the rational benchmark, but the rational agent is not using the visualizations as signals but rather using the actions made by behavioral agents. This means that when seeing a behavioral agent's action $a$, the rational agent will update the belief about states based on the joint distribution between behavioral actions and data generating models, i.e. $p(d|a) = p(a|d) \cdot p(d) / p(a)$ (Alg. \ref{alg:calibrated}).
 
 \begin{algorithm}[!h]
 \caption{Calibrated behavioral score}\label{alg:calibrated}
