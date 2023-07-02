@@ -32,7 +32,7 @@ Before we get started to applying the framework to a visualization experiment, w
 
 \begin{itemize}
     \item \textbf{states}: the description of reality we want help users understand with visualization, e.g. whether the temperature is above or below freezing in our weather forecast example.
-    \item \textbf{data generating model}: the process that generates the data shown in visualizations, from which the distribution of states can be inferred. In the weather forecast example, the data generating model is drawn uniformly from $\{Normal(5, 2), Normal(5, 3), Normal(5, 4), Normal(5, 5)\}$.
+    \item \textbf{data generating model}: the distribution of the distributions that states are generated from. In the weather forecast example, the data generating model is a uniform distribution on $\{Normal(5, 2), Normal(5, 3), Normal(5, 4), Normal(5, 5)\}$.
     \item an \textbf{action space}: the report space that the experiment requires users to use, e.g. whether or not to salt the parking lot.
     \item \textbf{signals}: the visualizations you show to users to aid their decisions.
     \item a \textbf{payoff} or \textbf{scoring rule}: the payoff function used in experiment to incentivize/score users' behaviors. In general, you can think of the scoring rule in the following two forms.
@@ -53,8 +53,8 @@ Note that the use of scoring rules may have two purposes:
 
 An experimenter may not use the same scoring rule for incentives and for evaluation. For example, the experimenter may use a flat payment to reward behavioral agents. Hence, the pre-experimental analysis has two purposes with different use of scoring rules:
 \begin{itemize}
-\item if it is believed that behavioral agents are incentivized by monetary rewards, the experimenter should pre-experimentally calculate the value of information in real money, and evaluate the incentive. The experimenter might prefer to choose a scoring rule with higher incentives compared to a base payment. [JH - not sure what previous sentence means]
-\item The experimenter can also use a proper scoring rule solely for the purpose of evaluation. The rational baseline, benchmark and value of information can be calculated pre-experimentally to compare with behavioral performance.  [JH - I think we should try to say why one would do an analysis with a proper scoring rule? is it bc you assume people will be well incentivized (even if they aren't paid) and you want to ensure you have a big enough gap between baseline and benchmark? Could add a sentence like 'For example, if an experiment uses a flat rule, or relies on volunteers, under an assumption that the participants will be naturally incentivized, they can use a proper scoring rule to analyze the design.  ]
+\item if it is believed that behavioral agents are incentivized by monetary rewards, the experimenter should pre-experimentally calculate the value of information in real money, and evaluate the incentive.
+\item The experimenter can also use a proper scoring rule solely for the purpose of evaluation. The rational baseline, benchmark and value of information can be calculated pre-experimentally to compare with behavioral performance.
 \end{itemize}
 
 In either case, the scoring rule is taken as input to our framework. The experimenter can select any payoff function, and construct a proper score, depending on the assumptions they make about the participants. 
@@ -73,26 +73,25 @@ $belief \gets E_{d\sim p(d)}(d)$\;\Comment{the prior belief about states}
 $action \gets \argmax_{a \sim A}{E_{\theta \sim belief}(S(a, \theta))}$\;\Comment{the action made on prior belief}
 $payoff \gets 0$\;
 \For{$row \in D$}{
-  $dist \gets \text{actual data generating model used in } row$\;
+  $dist \gets \text{the actual distribution that states are drawn used in } row$\;
   $payoff \gets payoff + E_{\theta \sim dist}(S(action, \theta))$\;
 }
-[JH - I didn't change some references to data generating model above (and below) but we need to]
 $\rprior \gets payoff / \text{\# of row in }D$\;\Comment{rational baseline is the rational agent's expected payoff in the experiment under only their prior belief}
 \end{algorithm}
 
-For the rational benchmark, we assume the rational agent has access to the visualization (signal). After seeing the visualization (signals), the rational agent will update their belief about the state based on the joint distribution between visualizations and states. For example, the visualization signal $v$ provides information about the possibility that this visualization could occur in data generating models $d$ as $p(v|d)$ and the prior belief about the data generating model is $p(d)$. Then the posterior belief about the data generating models could be $p(d|v) = p(v|d) \cdot p(d) / p(v)$. See the detail algorithm in Alg. \ref{alg:benchmark}.
+For the rational benchmark, we assume the rational agent has access to the visualization (signal). After seeing the visualization (signals), the rational agent will update their belief about the state based on the joint distribution between visualizations and states. For example, the distribution the visualization signals $v$ on the distribution of states $d$ is $p(v|d)$ and the prior belief about the states, i.e. the data generating model, is $p(d)$. Then the posterior belief about the state could be $p(d|v) = p(v|d) \cdot p(d) / p(v)$. See the detail algorithm in Alg. \ref{alg:benchmark}.
 
 \begin{algorithm}[!h]
 \caption{Rational benchmark}\label{alg:benchmark}
-\KwIn{the experimental data $D$ with each row representing one experimental trial, prior belief about data generating model $p(d)$, the action space $A$, and the scoring rule $S$}
+\KwIn{the experimental data $D$ with each row representing one experimental trial, prior beliefs about the state $p(d)$, the action space $A$, and the scoring rule $S$}
 \KwOut{the rational benchmark $\rscore$}
 $payoff \gets 0$\;
 \For{$row \in D$}{
   $v \gets \text{visualization used in } row$\; 
-  $p(d|v) = p(v|d) \cdot p(d) / p(v)$\;\Comment{the posterior belief about data generating models}
+  $p(d|v) = p(v|d) \cdot p(d) / p(v)$\;\Comment{the posterior belief about the distribution of states}
   $belief \gets E_{d\sim p(d|v)}(d)$\;\Comment{the posterior belief about states}
   $action \gets \argmax_{a \sim A}{E_{\theta \sim belief}(S(a, \theta))}$\;\Comment{the action made on posterior belief}
-  $dist \gets \text{actual data generating model used in } row$\;
+  $dist \gets \text{the actual distribution of states used in } row$\;
   $payoff \gets payoff + E_{\theta \sim dist}(S(action, \theta))$\;\Comment{the expected payoff with posterior information}
 }
 $\rscore \gets payoff / \text{\# of row in }D$\;
@@ -116,26 +115,26 @@ You can follow Alg. \ref{alg:behavioral} to estimate the payoff of behavioral ag
 \KwOut{the behavioral scores $behavioral$}
 $payoff \gets 0$\;
 \For{$row \in D$}{
-  $dist \gets \text{data generating model used in } row$\;
+  $dist \gets \text{the actual distribution of states used in } row$\;
   $action \gets \text{action made by the behavioral agent in } row$\;
   $payoff \gets payoff + E_{\theta \sim dist}(S(action, \theta))$\;\Comment{the expected score of behavioral action}
 }
 $behavioral \gets payoff / \text{\# of row in }D$\;
 \end{algorithm}
 
-For the calibrated behavioral score, you simulate the rational agent as in calculating the rational baseline and the rational benchmark, but the rational agent is not using the visualizations as signals but rather using the actions made by behavioral agents. This means that when seeing a behavioral agent's action $a$, the rational agent will update the belief about states based on the joint distribution between behavioral actions and data generating models, i.e. $p(d|a) = p(a|d) \cdot p(d) / p(a)$ (Alg. \ref{alg:calibrated}).
+For the calibrated behavioral score, you simulate the rational agent as in calculating the rational baseline and the rational benchmark, but the rational agent is not using the visualizations as signals but rather using the actions made by behavioral agents. This means that when seeing a behavioral agent's action $a$, the rational agent will update the belief about states based on the joint distribution between behavioral actions and states, i.e. $p(d|a) = p(a|d) \cdot p(d) / p(a)$ (Alg. \ref{alg:calibrated}).
 
 \begin{algorithm}[!h]
 \caption{Calibrated behavioral score}\label{alg:calibrated}
-\KwIn{the experimental data $D$ with each row representing one experimental trial, the distribution of data generating models $p(d)$, the action space $A$, and the scoring rule $S$}
+\KwIn{the experimental data $D$ with each row representing one experimental trial, prior beliefs about state $p(d)$, the action space $A$, and the scoring rule $S$}
 \KwOut{the calibrated behavioral score $benchmark$}
 $payoff \gets 0$\;
 \For{$row \in D$}{
   $signal \gets \text{action made by the behavioral agent in } row$
-  $p(d|signal) = p(signal|d) \cdot p(d) / p(signal)$\; \Comment{the posterior belief of the distribution of data generating models in calibration}
-  $belief \gets E_{d\sim p(d|signal)}(d)$\;\Comment{the belief of the data generating models}
+  $p(d|signal) = p(signal|d) \cdot p(d) / p(signal)$\; \Comment{the posterior belief of the distribution of states in calibration}
+  $belief \gets E_{d\sim p(d|signal)}(d)$\;\Comment{the belief of the states}
   $action \gets \argmax_{a \sim A}{E_{\theta \sim belief}(S(a, \theta))}$\; \Comment{the action made on posterior belief}
-  $dist \gets \text{data generating model used in } row$\;
+  $dist \gets \text{the actual distribution of states used in } row$\;
   $payoff \gets payoff + E_{\theta \sim dist}(S(action, \theta))$\; \Comment{the expected payoff with posterior information}
 }
 $benchmark \gets payoff / \text{\# of row in }D$\;
@@ -164,7 +163,7 @@ The decision-making problem of salting / not salting can be formalized as:
 
 \begin{itemize}
     \item states: $\theta \in \Theta = \{0=\text{not freezing}, 1=\text{freezing}\}$.
-    \item Assume daily low temperature $t \sim N(\mu, \sigma^2)$; $\Pr[\theta = 1] = \Pr[t \leq 0]$; $\mu = 5$ fixed and $\sigma$ uniformly from $\{2, 3, 4, 5\}$. The data generating models for different visualization strategies:
+    \item Assume daily low temperature $t \sim N(\mu, \sigma^2)$; $\Pr[\theta = 1] = \Pr[t \leq 0]$; $\mu = 5$ fixed and $\sigma$ uniformly from $\{2, 3, 4, 5\}$. The information provided by different visualization strategies:
     \begin{itemize}
     \item mean: the mean display is not more informative than prior, just knowing $\mu=5$. 
     \item CI, gradient, HOPs: seeing the visualization is the same as seeing the distribution of daily low temperature, or equivalently knowing the standard deviation $\sigma$ of temperature. 
@@ -210,11 +209,11 @@ belief_scoring_rule = function(belief, state) {
 
 \subsection{For the purposes of this walkthrough only: Simulate behavioral data using quantal response equilibrium}
 
-For the purposes of our walkthrough of the rational agent approach, we generate mock experimental data for the weather forecast example described above using quantal response equilibrium\footnote{https://www.sciencedirect.com/science/article/pii/S0899825685710238} (a type of behavioral model that assumes the probability of any particular action being chosen is positively related to the payoff from that action, i.e. very bad actions are unlikely), where we keep the distribution of sigma, i.e. the distribution of data generating models, as uniform distribution.
+For the purposes of our walkthrough of the rational agent approach, we generate mock experimental data for the weather forecast example described above using quantal response equilibrium\footnote{https://www.sciencedirect.com/science/article/pii/S0899825685710238} (a type of behavioral model that assumes the probability of any particular action being chosen is positively related to the payoff from that action, i.e. very bad actions are unlikely), where we keep the distribution of sigma, i.e. the data generating model, as uniform distribution.
 
 <<generate data>>=
 p_d = c(0.25, 0.25, 0.25, 0.25)
-# p(d) the prior knowledge of the distribution of data generating models
+# p(d) the prior belief about states
 
 sigma_choices = c(2, 3, 4, 5)
 mu = 5
@@ -330,7 +329,7 @@ The result says the optimal expected payoff of the rational agent with only prio
 
 \subsubsection{Rational benchmark}
 
-In the weather forecast example, the visualizations provide perfect information about the variance of data except "mean" visualization, so the updated distribution of data generating models could converge to a situation that only one data generating model has possibility with almost 1 and others are all almost 0. In this case, we assume that the rational agent would know which data generating model is using with certainty after viewing one visualization. Formally, assuming that $v$ provides perfect information about data generating model $d_1$, then
+In the weather forecast example, the visualizations provide perfect information about the variance of data except "mean" visualization, so the updated belief on the distribution of states will converge to a situation that only one distribution of state has possibility with almost 1 and others are all almost 0. In this case, we assume that the rational agent would exactly know which distribution of states is using after viewing one visualization. Formally, assuming that $v$ provides perfect information about the distribution of states $d_1$, then
 
 \begin{align*}
     p(v|d_1) &\approx 1\\
@@ -343,7 +342,7 @@ so $p(d_1|v) = p(v|d) \cdot p(d) / p(v) \approx 1$ when the visualization is fix
 
 <<benchmark>>=
 for (i in 1:nrow(data)) {
-  # rational agent can infer the exact data generating model based on signal
+  # rational agent can infer the exact distribution of states based on signal
   if (data[[i, "vis"]] == "mean") {
     posterior_belief = prior_belief
   } else {
@@ -372,7 +371,7 @@ posterior_payoff = data %>%
 posterior_payoff
 @
 
-When seeing "mean" visualization, the rational agent didn't get the information about sigma, so they can't update the belief on data generating models, and the rational benchmark for both reporting action and belief turns out to be $-7.96$, which is the same as rational baseline. For the other visualization, the rational benchmark for both reporting action and belief is $-5.69$.
+When seeing "mean" visualization, the rational agent didn't get the information about sigma, so they can't update the belief, and the rational benchmark for both reporting action and belief turns out to be $-7.96$, which is the same as rational baseline. For the other visualization, the rational benchmark for both reporting action and belief is $-5.69$.
 
 \subsubsection{Value of information}
 
@@ -408,7 +407,7 @@ Since the behavioral agent's actions are generated randomly but not from real pe
 Then we calibrate the behavioral agent.
 
 <<calibrated>>=
-# the joint distribution of actions and data generating models
+# the joint distribution of actions and states
 joint_decision_distribution = data %>%
   dplyr::group_by(mu, sigma, freezing_prob, behavioral_decision) %>%
   summarise(count = n()) %>%

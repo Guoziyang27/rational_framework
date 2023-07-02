@@ -1,6 +1,6 @@
 # The Rational Agent Benchmark for Data Visualization
 
-This repository contains supplemental materials for the manuscript, The Rational Agent Benchmark for Data Visualization by Yifan Wu, Ziyang Guo, Michalis Mamakos, Jason Hartline, and Jessica Hullman.
+This repository contains supplemental materials for the manuscript, The Rational Agent Benchmark for Data Visualization.
 
 ## Contents
 
