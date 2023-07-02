@@ -1,7 +1,7 @@
 ---
 output:
-  html_document: default
   pdf_document: default
+  html_document: default
 ---
 ```{r setup}
 
@@ -352,7 +352,7 @@ m.final_response %>%
 
 We now simulate behavioral agents' responses using the posterior predictive distribution of the model, separately for each combination of trial parameters (including scenario, visualization condition, trial number, and stimuli distribution parameters). Because the response variable is discrete (numbers of minutes as integer) we calculate a discrete version of the distributions. We also generate the quantile intervals of $60\%$, $85\%$, and $99\%$ that are shown in the text conditions as we need these to simulate behavioral agent scores in those conditions.
 
-```{r dataoutput}
+```{r dsitribution data}
 distribution_df = df %>%
   dplyr::select(distribution, mu, sigma, nu, tau) %>%
   unique() %>%
@@ -364,13 +364,31 @@ distribution_df = df %>%
     text60 = round(gamlss.dist::qBCT(1 - .60, mu, sigma, nu, tau) - 15),
     text99 = round(gamlss.dist::qBCT(1 - .99, mu, sigma, nu, tau) - 15)
   )
+```
 
+We generate two data frames for behavioral responses for using all trials and only the last trial respectively.
+
+```{r dataoutput}
 meta.df = df %>% 
   group_by(scenario) %>% 
   data_grid(vis, trial_normalized, distribution) %>%
   merge(distribution_df %>% dplyr::select(distribution, mu, sigma, nu, tau), by="distribution")
 
 pred.df = meta.df %>%
+  add_predicted_draws(m.final_response, ndraws = 500, value="pred_response", re_formula = NA) %>%
+  ungroup()
+```
+
+Then we generate for using only the last trial number.
+
+```{r data output last trial only}
+meta.df.last_trial = df %>% 
+  group_by(scenario) %>% 
+  data_grid(vis, distribution) %>%
+  mutate(trial_normalized = 0.5) %>%
+  merge(distribution_df %>% dplyr::select(distribution, mu, sigma, nu, tau), by="distribution")
+
+pred.df.last_trial = meta.df.last_trial %>%
   add_predicted_draws(m.final_response, ndraws = 500, value="pred_response", re_formula = NA) %>%
   ungroup()
 ```
@@ -442,6 +460,7 @@ vis_ids = unique(df$vis)
 
 # round the response predicted by model into interger and then bound them in [1, 30]
 pred.df$pred_response = round(pmax(pmin(pred.df$pred_response, 30), 1))
+pred.df.last_trial$pred_response = round(pmax(pmin(pred.df.last_trial$pred_response, 30), 1))
 ```
 
 We create a dictionary of payoffs for all scenario, stimuli distributions, and rider arivial times at the stop to accelerate later calculations. This may take a few minutes.
@@ -576,42 +595,43 @@ get_behavioral = function(sample_df, distribution_df) {
     summarise(payoff = mean(behavioral_payoff))
 }
 
-get_calibrated_behavioral = function(sample_df, distribution_df) {
-  calibrated_behavioral_payoff = tibble(
-    "scenario" = sample_df$scenario,
-    "vis" = sample_df$vis,
-    "response" = sample_df$pred_response,
-    "payoff" = -1
-  )
+get_calibrated_payoff_mapping = function(sample_df, distribution_df) {
+  # return the optimal payoff based on the distribution rational agent learns when viewing a joint distribution of response, scenario, visualization, and distribution
   sample_with_distribution = sample_df %>% merge(distribution_df,
                                                    by="distribution")
+  calibrated_payoff_mapping = list()
   for (scenario_id in scenario_ids) {
-    for (vis_id in vis_ids) {
-      case_data = sample_with_distribution %>% filter(scenario == scenario_id,
-                                                     vis == vis_id)
-      responses = unique(case_data$pred_response)
-      for (response_id in responses) {
-        # the distributions in the scenario, the visualization condition, and the behavioral response
-        distributions = case_data %>% 
-          filter(pred_response == response_id) %>% 
-          dplyr::select("discrete_1":"discrete_45") %>% 
-          data.matrix()
-        # the expected distribution
-        distribution = colSums(distributions) / nrow(distributions)
-        # the optimal payoff in the expected distribution
-        payoff = Reduce("max", lapply(0:30, 
-                        function(m, distribution, scenario) scoring_rule(m, distribution, scenario), 
-                        distribution = distribution, 
-                        scenario = scenario_id))
-        calibrated_behavioral_payoff[calibrated_behavioral_payoff$scenario == scenario_id &
-                                       calibrated_behavioral_payoff$vis == vis_id &
-                                       calibrated_behavioral_payoff$response == response_id, "payoff"] = payoff
-      }
+    scenario_list = list()
+    case_data = sample_with_distribution %>% filter(scenario == scenario_id)
+    responses = unique(case_data$pred_response)
+    for (response_id in responses) {
+      # the distributions in the scenario, the visualization condition, and the behavioral response
+      distributions = case_data %>% 
+        filter(pred_response == response_id) %>% 
+        dplyr::select("discrete_1":"discrete_45") %>% 
+        data.matrix()
+      # the expected distribution
+      distribution = colSums(distributions) / nrow(distributions)
+      calibrated_response = which.max(lapply(0:30, 
+                      function(m, distribution, scenario) scoring_rule(m, distribution, scenario),
+                      distribution = distribution,
+                      scenario = scenario_id))
+      
+      scenario_list[[as.character(response_id)]] = calibrated_response
     }
+    calibrated_payoff_mapping[[scenario_id]] = scenario_list
   }
-  calibrated_behavioral_payoff %>%
+  calibrated_payoff_mapping
+}
+
+get_calibrated_behavioral = function(sample_df, calibrated_payoff_mapping) {
+  sample_df %>%
+    ungroup() %>%
+    mutate(scenario = as.character(scenario)) %>% 
+    rowwise() %>% 
+    mutate(calibrated_payoff = payoff_mapping[[scenario]][[distribution]][[calibrated_payoff_mapping[[scenario]][[as.character(pred_response)]]]]) %>%
     group_by(scenario, vis) %>%
-    summarise(payoff = mean(payoff))
+    summarise(payoff = mean(calibrated_payoff))
 }
 
 ```
@@ -630,16 +650,34 @@ all_rational_prior = get_rational_prior(meta.df, distribution_df)
 all_rational_prior
 ```
 
+For the last trial only...
+
+```{r calculation rational posterior last trial only}
+all_rational_posterior_last_trial = get_rational_posterior(meta.df.last_trial, distribution_df)
+all_rational_posterior_last_trial
+```
+
+```{r calculation rational prior last trial only}
+all_rational_prior_last_trial = get_rational_prior(meta.df.last_trial, distribution_df)
+all_rational_prior_last_trial
+```
+
 ### Post-experiment analysis
 
 We calculate the behavioral agents' expected score and the expected calibrated behavioral score. To capture uncertainty, we simulate the experiment a hundred times, drawing a new sample of participant arrival time decisions in each round. This provides us with a distribution comprised of 100 simulated scores This will take a few hours. 
 
 ```{r calculation behavioral}
-n_round = 100
+n_round = 500
 sample_size = 10
 
 all_behavioral = tibble()
 all_calibrated_behavioral = tibble()
+
+# Since the whole pred.df is too large, we sample about a half of it to get the calibrated distribution
+sample_df = rbind(pred.df %>% group_by(scenario, pred_response) %>% slice(1),
+                  pred.df %>% group_by(.row) %>% sample_n(sample_size * 10))
+
+calibrated_payoff_mapping = get_calibrated_payoff_mapping(sample_df, distribution_df)
 
 pb <- progress_bar$new(
   format = "  behavioral [:bar] :percent eta: :eta",
@@ -656,15 +694,51 @@ for (round_id in 1:n_round) {
   all_behavioral = rbind(all_behavioral, behavioral)
   
   # calibrated score
-  calibrated_behavioral = get_calibrated_behavioral(sample_df, distribution_df)
+  calibrated_behavioral = get_calibrated_behavioral(sample_df, calibrated_payoff_mapping)
   calibrated_behavioral$round = round_id
   all_calibrated_behavioral = rbind(all_calibrated_behavioral, calibrated_behavioral)
 }
 ```
 
+For the last trial only...
+
+```{r calculation behavioral last trial only}
+n_round = 500
+sample_size = 10
+
+all_behavioral_last_trial = tibble()
+all_calibrated_behavioral_last_trial = tibble()
+
+# Since the whole pred.df is too large, we sample about a half of it to get the calibrated distribution
+sample_df = rbind(pred.df.last_trial %>% group_by(scenario, pred_response) %>% slice(1),
+                  pred.df.last_trial %>% group_by(.row) %>% sample_n(sample_size * 10))
+
+calibrated_payoff_mapping = get_calibrated_payoff_mapping(sample_df, distribution_df)
+
+pb <- progress_bar$new(
+  format = "  behavioral [:bar] :percent eta: :eta",
+  total = n_round, clear = FALSE, width= 60)
+# we run n_round rounds to generate n_round samples and calculate behavioral agent's score and calibrated score for each sample
+for (round_id in 1:n_round) {
+  pb$tick()
+  # sample
+  sample_df = pred.df.last_trial %>% group_by(.row) %>% sample_n(sample_size)
+  
+  #behavioral score
+  behavioral = get_behavioral(sample_df, distribution_df)
+  behavioral$round = round_id
+  all_behavioral_last_trial = rbind(all_behavioral_last_trial, behavioral)
+  
+  # calibrated score
+  calibrated_behavioral = get_calibrated_behavioral(sample_df, calibrated_payoff_mapping)
+  calibrated_behavioral$round = round_id
+  all_calibrated_behavioral_last_trial = rbind(all_calibrated_behavioral_last_trial, calibrated_behavioral)
+}
+```
+
 ### Results
 
-We show the results by visualizations in each scenario.
+We show the results by visualizations in each scenario. For all trials...
 
 ```{r visualization}
 score_summary = merge(all_behavioral %>% 
@@ -729,6 +803,81 @@ ggplot() +
   geom_vline(xintercept = (all_rational_prior %>% filter(scenario == "s3"))$payoff, linetype = "dashed", linewidth = 1) + 
   labs(x = "", y = "") +
   ylim((score_summary %>% filter(scenario == "s3"))$vis) +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major = element_line(colour = "grey"),
+        axis.line.x = element_line(linewidth = 1.5, colour = "grey80"),
+        panel.background = element_rect(fill = "white", color = "white"),
+        axis.ticks.y = element_blank(),
+        axis.ticks.x = element_line(colour = "grey"))
+```
+
+For only the last trial...
+
+
+```{r visualization last trial}
+score_summary_last_trial = merge(all_behavioral_last_trial %>% 
+        dplyr::select(behavioral_score = payoff, everything()) %>% 
+        group_by(scenario, vis) %>% 
+        dplyr::summarise(behavioral_score = mean(behavioral_score)), 
+  all_calibrated_behavioral_last_trial %>% 
+    dplyr::select(calibrated_score = payoff, everything()) %>% 
+    group_by(scenario, vis) %>% 
+    dplyr::summarise(calibrated_score = mean(calibrated_score)), by = c("scenario", "vis")) %>%
+  merge(all_rational_posterior_last_trial %>% 
+          dplyr::select(rational_posterior_score = payoff, everything()), by = c("scenario")) %>%
+  merge(all_rational_prior_last_trial %>% 
+          dplyr::select(rational_prior_score = payoff, everything()), by = c("scenario")) %>%
+  mutate(decision_loss = calibrated_score - behavioral_score,
+         differentiation_loss = rational_posterior_score - calibrated_score,
+         delta = rational_posterior_score - rational_prior_score) %>%
+  arrange(decision_loss) %>%
+  mutate(r1 = round(differentiation_loss / delta * 100), 
+         r2 = round(decision_loss / delta * 100))
+```
+
+```{r s1 last trial}
+ggplot() +
+  stat_slab(data = all_behavioral_last_trial %>% filter(scenario == "s1"), aes(y = vis, x = payoff), fill = "#7570b3", point_size=3) +
+  stat_slab(data = all_calibrated_behavioral_last_trial %>% filter(scenario == "s1"), aes(y = vis, x = payoff), fill = "#d95f02", point_size=3) +
+  geom_vline(xintercept = (all_rational_posterior_last_trial %>% filter(scenario == "s1"))$payoff, linetype = "dashed", linewidth = 1) + 
+  geom_vline(xintercept = (all_rational_prior_last_trial %>% filter(scenario == "s1"))$payoff, linetype = "dashed", linewidth = 1) + 
+  labs(x = "", y = "") +
+  ylim((score_summary_last_trial %>% filter(scenario == "s1"))$vis) +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major = element_line(colour = "grey"),
+        axis.line.x = element_line(linewidth = 1.5, colour = "grey80"),
+        panel.background = element_rect(fill = "white", color = "white"),
+        axis.ticks.y = element_blank(),
+        axis.ticks.x = element_line(colour = "grey"))
+```
+
+```{r s2 last trial}
+ggplot() +
+  stat_slab(data = all_behavioral_last_trial %>% filter(scenario == "s2"), aes(y = vis, x = payoff), fill = "#7570b3", point_size=3) +
+  stat_slab(data = all_calibrated_behavioral_last_trial %>% filter(scenario == "s2"), aes(y = vis, x = payoff), fill = "#d95f02", point_size=3) +
+  geom_vline(xintercept = (all_rational_posterior_last_trial %>% filter(scenario == "s2"))$payoff, linetype = "dashed", size = 1) + 
+  geom_vline(xintercept = (all_rational_prior_last_trial %>% filter(scenario == "s2"))$payoff, linetype = "dashed", size = 1) + 
+  labs(x = "", y = "") +
+  ylim((score_summary_last_trial %>% filter(scenario == "s2"))$vis) +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major = element_line(colour = "grey"),
+        axis.line.x = element_line(linewidth = 1.5, colour = "grey80"),
+        panel.background = element_rect(fill = "white", color = "white"),
+        axis.ticks.y = element_blank(),
+        axis.ticks.x = element_line(colour = "grey"))
+```
+
+```{r s3 last trial}
+ggplot() +
+  stat_slab(data = all_behavioral_last_trial %>% filter(scenario == "s3"), aes(y = vis, x = payoff), fill = "#7570b3", point_size=3) +
+  stat_slab(data = all_calibrated_behavioral_last_trial %>% filter(scenario == "s3"), aes(y = vis, x = payoff), fill = "#d95f02", point_size=3) +
+  geom_vline(xintercept = (all_rational_posterior_last_trial %>% filter(scenario == "s3"))$payoff, linetype = "dashed", linewidth = 1) + 
+  geom_vline(xintercept = (all_rational_prior_last_trial %>% filter(scenario == "s3"))$payoff, linetype = "dashed", linewidth = 1) + 
+  labs(x = "", y = "") +
+  ylim((score_summary_last_trial %>% filter(scenario == "s3"))$vis) +
   theme(panel.grid.major.x = element_blank(),
         panel.grid.minor.x = element_blank(),
         panel.grid.major = element_line(colour = "grey"),
