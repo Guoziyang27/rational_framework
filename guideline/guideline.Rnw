@@ -39,7 +39,6 @@ Before we get started to applying the framework to a visualization experiment, w
     \begin{itemize}
     \item payoff: $\actionspace\times\statespace\to \mathbb{R}$, a function mapping an action and the state to a real-valued payoff. e.g. how many points you lose if you salt when it doesn't freeze or don't salt but it freezes.
     \item proper score: $\distover{\statespace}\times\statespace\to \mathbb{R}$ a function mapping the probability distribution over state and the state to a real-valued payoff. The proper score applies the optimal action given the belief (a probability distribution), and is a proper measure of the quality of a decision. See Gneiting and Raftery, "Strictly Proper Scoring Rules, Prediction, and Estimation" (2007) for more information.
-%    the payoff evaluates the quality score or payoff that the experiment assigns to participants depending on their action and the state in reality,  For each payoff function, we can construct a proper scoring rule to evaluate the 
     \end{itemize}
     
     There is a one-to-one mapping between a payoff and a proper score. We can always construct a proper score from a payoff. 
@@ -400,11 +399,11 @@ behavioral_payoff = data %>%
 behavioral_payoff
 @
 
-Since the behavioral agent's actions are generated randomly but not from real persons, some of the payoffs are below rational baseline, e.g. the behavioral payoff when reporting belief. Then we will introduce the calibrated behavioral score, which can represent the behavioral in the baseline-and-benchmark scale.
+Some results of the behavioral agents ($-8.47$, $-8.37$, $-8.59$, and $-8.33$) are below the rational baseline ($-7.96$). Even though these results (in this example) come from some hypothetical behavioral agents who are simulated by quantal response equilibrium theory, this situation could also happen in a real experiment setting, where the behavioral agents might not follow a rational updating or decision rule or don’t have a proper prior belief. Solely comparing these raw behavioral scores with the rational baseline and benchmark will entangle the loss cased by the information in visualization and the loss cased by the behavioral agents’ improper prior belief or decision rule. Therefore, we propose the calibrated behavioral score, which can calibrate the behavioral agent by a Bayesian updating process and separate these two losses.
 
 \subsubsection{Calibrated behavioral score}
 
-Then we calibrate the behavioral agent.
+We calibrate the behavioral agent by using a rational agent accessing their decisions as signals.
 
 <<calibrated>>=
 # the joint distribution of actions and states
