@@ -53,7 +53,7 @@ Note that the use of scoring rules may have two purposes:
 An experimenter may not use the same scoring rule for incentives and for evaluation. For example, the experimenter may use a flat payment to reward behavioral agents. Hence, the pre-experimental analysis has two purposes with different use of scoring rules:
 \begin{itemize}
 \item if it is believed that behavioral agents are incentivized by monetary rewards, the experimenter should pre-experimentally calculate the value of information in real money, and evaluate the incentive.
-\item The experimenter can also use a proper scoring rule solely for the purpose of evaluation. The rational baseline, benchmark and value of information can be calculated pre-experimentally to compare with behavioral performance.
+\item The experimenter can also use a proper scoring rule solely for the purpose of evaluation. The rational baseline, benchmark and value of information can be calculated pre-experimentally to quantify the ``room for improvement'' in the experiment, thus to quantify information asymmetry. 
 \end{itemize}
 
 In either case, the scoring rule is taken as input to our framework. The experimenter can select any payoff function, and construct a proper score, depending on the assumptions they make about the participants. 
@@ -121,7 +121,7 @@ $payoff \gets 0$\;
 $behavioral \gets payoff / \text{\# of row in }D$\;
 \end{algorithm}
 
-For the calibrated behavioral score, you simulate the rational agent as in calculating the rational baseline and the rational benchmark, but the rational agent is not using the visualizations as signals but rather using the actions made by behavioral agents. This means that when seeing a behavioral agent's action $a$, the rational agent will update the belief about states based on the joint distribution between behavioral actions and states, i.e. $p(d|a) = p(a|d) \cdot p(d) / p(a)$ (Alg. \ref{alg:calibrated}).
+For the calibrated behavioral score, you simulate the rational agent as in calculating the rational baseline and the rational benchmark, but the rational agent is not using the visualizations as signals but rather using the actions made by behavioral agents. This means that when seeing a behavioral agents' action $a$, the rational agent will update the belief about states based on the joint distribution between behavioral actions and states, i.e. $p(d|a) = p(a|d) \cdot p(d) / p(a)$ (Alg. \ref{alg:calibrated}).
 
 \begin{algorithm}[!h]
 \caption{Calibrated behavioral score}\label{alg:calibrated}
@@ -370,7 +370,7 @@ posterior_payoff = data %>%
 posterior_payoff
 @
 
-When seeing "mean" visualization, the rational agent didn't get the information about sigma, so they can't update the belief, and the rational benchmark for both reporting action and belief turns out to be $-7.96$, which is the same as rational baseline. For the other visualization, the rational benchmark for both reporting action and belief is $-5.69$.
+When seeing "mean" visualization, the rational agent didn't get the information about sigma, so they can't update the belief, and the rational benchmark for both reporting action and belief turns out to be $-7.96$, which is the same as rational baseline. For the other visualizations, the rational benchmark for both reporting action and belief is $-5.69$.
 
 \subsubsection{Value of information}
 
@@ -378,7 +378,7 @@ In the example of weather forecast, the value of information is \texttt{posterio
 
 \subsection{Post-experiment analysis}
 
-In this section, we will calculate the score of behavioral agents and the score of the calibrated behavioral. 
+In this section, we will calculate the score of behavioral agents and the score of the calibrated behavioral agents. 
 
 \subsubsection{Behavioral score}
 
